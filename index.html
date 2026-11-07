@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>スピード暗記帳</title>
+<meta name="description" content="期末テストの暗記を、忘れかけたころに出るカードで回すアプリ">
+<meta name="theme-color" content="#e4eae7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111816" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="暗記帳">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Maru+Gothic:wght@500;700&display=swap">
+<style>
+/* Layout: one-screen flashcard app. Ring-bound word cards on a desk; a red check-sheet covers the answer until you lift it. */
+:root{
+  --desk:#e4eae7; --card:#fffefa; --ink:#1b2928; --muted:#586866; --rule:#cbd6d2; --soft:#edf2ef;
+  --sheet:#d92f46; --sheet-ink:#ffffff; --sheet-soft:#fbe2e5;
+  --again:#c22f2f; --hard:#a86300; --good:#1b7443; --easy:#2155a3;
+  --round:"Zen Maru Gothic","Hiragino Maru Gothic ProN","BIZ UDPGothic",sans-serif;
+  --body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI",Meiryo,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --desk:#111816; --card:#1b2422; --ink:#e5eeeb; --muted:#9db0ab; --rule:#33423e; --soft:#232f2c;
+  --sheet:#e2566a; --sheet-ink:#ffffff; --sheet-soft:#43232a;
+  --again:#ff7d74; --hard:#efa63c; --good:#62cf93; --easy:#89b4ef; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--desk);color:var(--ink);font:15px/1.65 var(--body);font-variant-numeric:tabular-nums;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+h1,h2,h3,p,ul{margin:0}
+img{max-width:100%}
+.app{height:100%;display:flex;flex-direction:column;max-width:720px;margin:0 auto;padding-top:env(safe-area-inset-top,0px);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.screen{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-block:18px max(28px,env(safe-area-inset-bottom,0px));display:grid;align-content:start;gap:16px}
+.muted{color:var(--muted)} .small{font-size:13px}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:8px 16px;flex-wrap:wrap}
+.top h1{font:700 26px/1.3 var(--round);text-wrap:balance}
+.count{font:700 15px/1.3 var(--round);color:var(--sheet)} .count b{font-size:30px;margin:0 2px}
+.panel{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:16px;display:grid;gap:12px;min-width:0}
+.panel h2{font:700 18px/1.4 var(--round)}
+.nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.num{display:grid;gap:0;min-width:0} .num span{font-size:12px;color:var(--muted)} .num b{font:700 26px/1.25 var(--round)} .num b small{font-size:13px;font-weight:500}
+.btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 18px;border-radius:999px;background:var(--ink);color:var(--card);font-weight:700;text-align:center}
+.btn.big{width:100%;padding:14px 18px;font-size:17px}
+.btn.line{background:transparent;color:var(--ink);border:1.5px solid var(--ink);padding:8px 16px}
+.btn.text{background:transparent;color:var(--muted);padding:6px 8px;font-weight:400;border-radius:6px}
+.btn.danger{color:var(--again)}
+.btn[disabled]{opacity:.4;cursor:default}
+.btn:focus-visible,.chip:focus-visible,.opt:focus-visible,.rate button:focus-visible,.cover:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--easy);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{all:unset;cursor:pointer;padding:3px 12px;font-size:13px;border:1px solid var(--rule);border-radius:999px;background:var(--card)}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card);font-weight:700}
+.decks{list-style:none;padding:0;display:grid;gap:0}
+.deck{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:11px 0;border-top:1px solid var(--soft)}
+.deck:first-child{border-top:0}
+.deck strong{display:block;overflow-wrap:anywhere}
+.deck .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.deck .acts .btn{padding:7px 13px;font-size:13px}
+.notice{border:1px solid var(--sheet);background:var(--sheet-soft);border-radius:10px;padding:10px 14px;font-size:14px}
+.study{flex:1;min-height:0;display:flex;flex-direction:column;padding-top:10px}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.prog{height:4px;background:var(--rule);border-radius:2px;overflow:hidden;margin:6px 0 10px}
+.prog i{display:block;height:100%;background:var(--ink)}
+.cardwrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:12px}
+.wcard{position:relative;background:var(--card);border:1px solid var(--rule);border-radius:16px;padding:22px 18px 18px 40px;display:grid;gap:14px;box-shadow:0 1px 0 var(--rule),0 6px 18px -12px rgba(0,0,0,.35)}
+.wcard::before{content:"";position:absolute;left:14px;top:20px;width:12px;height:12px;border-radius:50%;background:var(--desk);border:1px solid var(--rule)}
+.meta{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 10px}
+.tag{font-size:11px;font-weight:700;border:1px solid var(--sheet);color:var(--sheet);padding:0 6px;border-radius:4px}
+.front{font-size:19px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
+.opts{display:grid;gap:7px}
+.opt{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;align-items:center;padding:10px 12px;border:1.5px solid var(--rule);border-radius:10px;font-size:16px;overflow-wrap:anywhere}
+.opt b{font:700 15px var(--round);color:var(--muted)}
+.opt:hover:not([disabled]){background:var(--soft)}
+.opt.right{border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
+.opt.wrong{border-color:var(--again);background:color-mix(in srgb,var(--again) 12%,transparent)}
+.opt[disabled]{cursor:default}
+.cover{all:unset;box-sizing:border-box;cursor:pointer;display:grid;place-items:center;min-height:84px;border-radius:10px;background:var(--sheet);color:var(--sheet-ink);font-weight:700;opacity:.9}
+.answer{border-top:2px dashed var(--rule);padding-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
+.answer b{color:var(--good)}
+.controls{padding-block:10px max(14px,env(safe-area-inset-bottom,0px));display:grid;gap:8px;background:var(--desk)}
+.hint{text-align:center;font-size:12px;color:var(--muted)}
+.rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.rate.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.rate button{all:unset;box-sizing:border-box;cursor:pointer;display:grid;gap:1px;text-align:center;padding:11px 4px;border-radius:12px;border:2px solid currentColor;background:var(--card);font:700 15px var(--round)}
+.rate button small{font:400 11px var(--body);color:var(--muted)}
+.rate button.rec{box-shadow:0 0 0 3px color-mix(in srgb,currentColor 30%,transparent)}
+.r1{color:var(--again)} .r2{color:var(--hard)} .r3{color:var(--good)} .r4{color:var(--easy)}
+form{display:grid;gap:10px}
+label{display:grid;gap:3px;font-size:12px;font-weight:700;min-width:0}
+input[type=number],input[type=date],input[type=text],select,textarea{width:100%;min-width:0;font:16px var(--body);color:var(--ink);background:var(--desk);border:1px solid var(--rule);border-radius:8px;padding:7px 9px}
+textarea{min-height:70px;resize:vertical}
+.err{font-size:13px;color:var(--again)} .ok{font-size:13px;color:var(--good)}
+.mlist{list-style:none;padding:0;display:grid}
+.mlist li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px 0;border-top:1px solid var(--soft);align-items:start}
+.mlist li:first-child{border-top:0}
+.mlist div{overflow-wrap:anywhere;white-space:pre-wrap;font-size:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.steps{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
+@media (max-width:420px){.front{font-size:17px}.wcard{padding:20px 14px 16px 34px}.wcard::before{left:11px}.num b{font-size:22px}}
+@media (prefers-reduced-motion:no-preference){.prog i{transition:width .2s}}
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="screen" id="welcome" hidden></main>
+  <main class="screen" id="home" hidden></main>
+  <section class="study" id="study" hidden></section>
+  <main class="screen" id="library" hidden></main>
+  <main class="screen" id="manage" hidden>
+    <div class="top"><h1>カードの追加と管理</h1><button class="btn line" data-act="home" id="m-back">戻る</button></div>
+    <div class="panel">
+      <h2>デッキを選ぶ</h2>
+      <select id="m-deck" aria-label="カードを追加するデッキ"></select>
+      <form id="nd-form" class="grid2">
+        <label>新しいデッキの名前<input type="text" id="nd-title" maxlength="40" placeholder="例：数学 二次関数"></label>
+        <label>科目<select id="nd-subject"></select></label>
+        <div class="row"><button class="btn line" type="submit" id="nd-save">デッキを作る</button><span id="nd-msg"></span></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>1枚ずつ追加</h2>
+      <form id="one-form">
+        <label>表（問題）<textarea id="m-front" maxlength="600" required></textarea></label>
+        <label>裏（答えと理由）<textarea id="m-back" maxlength="900" required></textarea></label>
+        <div class="row"><button class="btn" type="submit" id="m-save">追加する</button><span id="m-msg"></span></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>まとめて追加</h2>
+      <p class="muted small">1行に1枚、表と裏を「｜」かタブで区切って書きます。Claudeに「暗記帳に貼れる形でカードを作って」と頼むと、この形で作ってくれます。<br>例：How long does it take の意味は？｜（時間が）どれくらいかかるか</p>
+      <form id="bulk-form">
+        <label>カード<textarea id="b-text" style="min-height:150px" maxlength="50000"></textarea></label>
+        <div class="row"><button class="btn" type="submit" id="b-save">まとめて追加する</button><span id="b-msg"></span></div>
+      </form>
+    </div>
+    <div class="panel"><div class="top"><h2>このデッキのカード</h2><span class="muted small" id="m-count"></span></div><div id="m-list"></div></div>
+    <div class="panel">
+      <h2>バックアップと引っ越し</h2>
+      <p class="muted small">進み具合とカードはこのスマホの中だけに保存されます。機種変更の前や、ときどき書き出しておくと安心です。</p>
+      <div class="row"><button class="btn line" data-act="export-file" id="ex-file">ファイルに書き出す</button><button class="btn line" data-act="export-copy" id="ex-copy">テキストでコピー</button></div>
+      <label>バックアップを読み込む（ファイル）<input type="file" id="imp-file" accept="application/json,.json,text/plain"></label>
+      <label>バックアップを読み込む（テキストを貼る）<textarea id="imp-text" style="min-height:60px"></textarea></label>
+      <div class="row"><button class="btn line" data-act="import-text" id="imp-go">貼ったテキストを読み込む</button></div>
+      <div id="imp-msg"></div>
+    </div>
+  </main>
+</div>
+<script src="library.js"></script>
+<script>
+(function(){
+const SUBJECTS=['英語','論理・表現','国語','数学','理科','社会','情報','その他'];
+const MARK='①②③④⑤⑥';
+const KEY='speed-anki-v1';
+const LIB=Array.isArray(window.LIBRARY)?window.LIBRARY:[];
+function blank(){return {decks:[],srs:{cards:{},newCount:{},log:{},newLimit:40},examDate:'2026-12-02',setup:false}}
+function load(){
+  try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&Array.isArray(d.decks)){const b=blank();return Object.assign(b,d,{srs:Object.assign(b.srs,d.srs||{})})}}catch(e){}
+  return blank();
+}
+let D=load();
+const S={screen:D.setup?'home':'welcome',filter:'all',run:null,confirm:null,manageDeck:null,saveErr:'',pendingImport:null};
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(D));S.saveErr=''}catch(e){S.saveErr='保存できませんでした。スマホの空き容量を確認してください。'}}
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+
+const $=id=>document.getElementById(id);
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+function today(){const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function utc(s){const[a,b,c]=String(s).split('-').map(Number);return Date.UTC(a,b-1,c)}
+function dayStart(t){const d=new Date(t);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()}
+function shift(s,n){const d=new Date(utc(s)+n*864e5);return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate())}
+function daysLeft(){return /^\d{4}-\d{2}-\d{2}$/.test(D.examDate||'')?Math.round((utc(D.examDate)-utc(today()))/864e5):null}
+function setMsg(id,text,ok){const el=$(id);if(!el)return;el.className=ok?'ok':'err';el.textContent=text}
+
+function allCards(){
+  const out=[];
+  D.decks.slice().sort((a,b)=>(a.order||0)-(b.order||0)).forEach(d=>(d.cards||[]).forEach((c,i)=>out.push({
+    key:d.id+':'+(c.id||i),deckId:d.id,deckTitle:d.title||'',subject:c.subject||d.subject||'',category:c.category||'',
+    front:c.front||'',back:c.back||'',options:Array.isArray(c.options)&&c.options.length?c.options:null,answer:typeof c.answer==='number'?c.answer:-1})));
+  return out;
+}
+const visible=()=>allCards().filter(c=>S.filter==='all'||c.subject===S.filter);
+const stateOf=k=>{const s=(D.srs.cards||{})[k];return s&&typeof s==='object'?s:null};
+const newLimit=()=>{const v=Number(D.srs.newLimit);return D.srs.newLimit!=null&&Number.isFinite(v)?v:40};
+const newToday=()=>(D.srs.newCount||{})[today()]||0;
+const logOf=t=>Object.assign({n:0,again:0,cram:0},(D.srs.log||{})[t]);
+function counts(cards){
+  const now=Date.now();let due=0,fresh=0,learned=0;
+  cards.forEach(c=>{const s=stateOf(c.key);if(!s)fresh++;else{if(s.due<=now)due++;if(s.ivl>=7)learned++}});
+  return {due,fresh,learned,total:cards.length,avail:Math.min(fresh,Math.max(0,newLimit()-newToday()))};
+}
+function streak(){let t=today(),n=0;const has=d=>{const l=logOf(d);return l.n+l.cram>0};if(!has(t))t=shift(t,-1);while(has(t)){n++;t=shift(t,-1)}return n}
+function schedule(prev,r){
+  const now=Date.now(),s=prev?Object.assign({},prev):{ivl:0,ease:2.5,reps:0,lapses:0};
+  if(r===1){s.lapses=(s.lapses||0)+1;s.reps=0;s.ivl=0;s.ease=Math.max(1.3,s.ease-0.2);s.due=now+60e3}
+  else{
+    if(r===2){s.ivl=s.reps===0?0:Math.max(1,Math.round(s.ivl*1.2));s.ease=Math.max(1.3,s.ease-0.15)}
+    else if(r===3){s.ivl=s.reps===0?1:s.reps===1?3:Math.max(s.ivl+1,Math.round(s.ivl*s.ease))}
+    else{s.ivl=s.reps===0?3:Math.max(s.ivl+2,Math.round(Math.max(s.ivl,1)*s.ease*1.3));s.ease=s.ease+0.15}
+    const left=daysLeft();
+    const cap=left!=null&&left>1?Math.min(14,left-1):14;
+    s.ivl=Math.min(s.ivl,Math.max(1,cap));s.reps++;
+    s.due=s.ivl===0?now+10*60e3:dayStart(now)+s.ivl*864e5;
+  }
+  s.last=now;return s;
+}
+function ivlLabel(s){const m=Math.round((s.due-Date.now())/60e3);return m<60?Math.max(1,m)+'分後':s.ivl+'日後'}
+function setState(k,s){D.srs.cards=Object.assign({},D.srs.cards,{[k]:s})}
+function setLog(t,l){D.srs.log=Object.assign({},D.srs.log,{[t]:l})}
+function setNew(t,n){D.srs.newCount=Object.assign({},D.srs.newCount,{[t]:n})}
+function mix(due,fresh){const out=[];let i=0,j=0;while(i<due.length||j<fresh.length){for(let k=0;k<3&&i<due.length;k++)out.push(due[i++]);if(j<fresh.length)out.push(fresh[j++])}return out}
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+function startSrs(cards){
+  const now=Date.now();
+  const due=cards.filter(c=>{const s=stateOf(c.key);return s&&s.due<=now}).sort((a,b)=>stateOf(a.key).due-stateOf(b.key).due);
+  const fresh=cards.filter(c=>!stateOf(c.key)).slice(0,Math.max(0,newLimit()-newToday()));
+  const q=mix(due,fresh);if(!q.length)return;
+  S.run={mode:'srs',queue:q,total:q.length,shown:false,pick:null,done:0,right:0,history:[],missed:new Set()};
+  go('study');
+}
+function startCram(cards){
+  if(!cards.length)return;
+  S.run={mode:'cram',queue:shuffle(cards),total:cards.length,shown:false,pick:null,done:0,right:0,history:[],missed:new Set()};
+  go('study');
+}
+function reveal(){const r=S.run;if(r&&r.queue.length&&!r.shown){r.shown=true;renderStudy()}}
+function pick(i){const r=S.run;if(!r||r.shown)return;r.pick=i;r.shown=true;renderStudy()}
+function recommended(){const r=S.run,c=r.queue[0];if(!c)return 3;return c.options&&r.pick!=null?(r.pick===c.answer?3:1):3}
+function rate(v){
+  const r=S.run;if(!r||!r.shown||!r.queue.length)return;
+  const c=r.queue[0],prev=stateOf(c.key),s=schedule(prev,v),t=today(),lgPrev=logOf(t),ncPrev=newToday();
+  r.history.push({key:c.key,prev,queue:r.queue.slice(),lgPrev,ncPrev,done:r.done,right:r.right,missedHad:r.missed.has(c.key)});
+  r.queue.shift();
+  setState(c.key,s);setLog(t,Object.assign({},lgPrev,{n:lgPrev.n+1,again:lgPrev.again+(v===1?1:0)}));
+  if(!prev)setNew(t,ncPrev+1);
+  if(v===1)r.missed.add(c.key);else r.right++;
+  if(s.due-Date.now()<30*60e3)r.queue.splice(Math.min(3,r.queue.length),0,c);
+  r.done++;r.shown=false;r.pick=null;persist();renderStudy();
+}
+function cram(ok){
+  const r=S.run;if(!r||!r.shown||!r.queue.length)return;
+  const c=r.queue[0],t=today(),lgPrev=logOf(t);
+  r.history.push({key:c.key,queue:r.queue.slice(),lgPrev,done:r.done,right:r.right,missedHad:r.missed.has(c.key)});
+  r.queue.shift();
+  if(ok){if(!r.missed.has(c.key))r.right++}else{r.missed.add(c.key);r.queue.splice(Math.min(4,r.queue.length),0,c)}
+  r.done++;r.shown=false;r.pick=null;setLog(t,Object.assign({},lgPrev,{cram:lgPrev.cram+1}));persist();renderStudy();
+}
+function undo(){
+  const r=S.run;if(!r||!r.history.length)return;
+  const h=r.history.pop(),t=today();
+  r.queue=h.queue;r.done=h.done;r.right=h.right;if(!h.missedHad)r.missed.delete(h.key);r.shown=false;r.pick=null;
+  setLog(t,h.lgPrev);
+  if(r.mode==='srs'){if(h.prev)setState(h.key,h.prev);else{const c=Object.assign({},D.srs.cards);delete c[h.key];D.srs.cards=c}setNew(t,h.ncPrev)}
+  persist();renderStudy();
+}
+function go(s){S.screen=s;if(s!=='study')S.run=null;S.confirm=null;render();const el=$(s);if(el)el.scrollTop=0}
+
+/* decks */
+const userDecks=()=>D.decks.filter(d=>!d.builtin);
+function libGroups(){const g=[];LIB.forEach(d=>{const k=d.group||d.subject||'その他';let x=g.find(y=>y.name===k);if(!x){x={name:k,decks:[]};g.push(x)}x.decks.push(d)});return g}
+function installLib(id){
+  const l=LIB.find(x=>x.id===id);if(!l)return;
+  const deck={id:l.id,title:l.title,subject:l.subject,order:l.order||0,builtin:true,version:l.version||1,cards:(l.cards||[]).map(c=>Object.assign({},c))};
+  const i=D.decks.findIndex(d=>d.id===id);if(i>=0)D.decks[i]=deck;else D.decks.push(deck);
+}
+function removeDeck(id){
+  D.decks=D.decks.filter(d=>d.id!==id);
+  const c=Object.assign({},D.srs.cards);Object.keys(c).forEach(k=>{if(k.indexOf(id+':')===0)delete c[k]});D.srs.cards=c;
+  persist();
+}
+function createDeck(title,subject){
+  const deck={id:'u'+Date.now().toString(36),title:title||'自分のカード',subject:subject||'',order:100+D.decks.length,cards:[]};
+  D.decks.push(deck);persist();return deck;
+}
+function targetDeck(){
+  let d=userDecks().find(x=>x.id===S.manageDeck);
+  if(!d){d=createDeck('自分のカード',$('nd-subject').value);S.manageDeck=d.id}
+  return d;
+}
+function addCards(list){
+  const d=targetDeck(),base=Date.now().toString(36);
+  list.forEach((c,i)=>d.cards.push({id:'c'+base+'-'+i,front:c.front,back:c.back}));
+  persist();
+}
+
+/* render */
+function renderWelcome(){
+  const groups=libGroups();
+  let h='<div class="top"><h1>スピード暗記帳</h1></div>';
+  h+='<div class="panel"><p>期末テストの暗記を、忘れかけたころに出るカードで回すアプリです。進み具合とカードは、このスマホの中だけに保存されます。</p></div>';
+  h+='<div class="panel"><h2>最初に入れるデッキ</h2>'+groups.map((g,i)=>'<button class="btn big" data-act="setup-group" data-group="'+i+'" id="setup-'+i+'">'+esc(g.name)+'を入れて始める</button>').join('')+'<button class="btn line" data-act="setup-empty" id="setup-empty">空のまま始める（自分でデッキを作る）</button></div>';
+  h+=installTip();
+  $('welcome').innerHTML=h;
+}
+function installTip(){
+  const standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone;
+  if(standalone)return '';
+  return '<div class="panel"><h2>ホーム画面に追加すると、アプリのように使えます</h2><ol class="steps"><li>iPhoneは Safari で開き、下の共有ボタン（四角から矢印）を押す</li><li>「ホーム画面に追加」を選ぶ</li><li>ホーム画面の「暗記帳」アイコンから開く</li></ol><p class="muted small">Androidは Chrome のメニューから「ホーム画面に追加」を選びます。</p></div>';
+}
+function renderHome(){
+  const el=$('home'),left=daysLeft();
+  let h='<div class="top"><div><h1>スピード暗記帳</h1></div><p class="count">'+(left==null?'':left>0?'テストまで あと<b>'+left+'</b>日':left===0?'今日から本番':'テスト期間')+'</p></div>';
+  if(S.saveErr)h+='<div class="notice">'+esc(S.saveErr)+'</div>';
+  const subs=[...new Set(allCards().map(c=>c.subject).filter(Boolean))];
+  if(subs.length>1)h+='<div class="chips" role="group" aria-label="科目で絞り込む">'+['all'].concat(subs).map(s=>'<button class="chip" id="chip-'+esc(s)+'" data-filter="'+esc(s)+'" aria-pressed="'+(S.filter===s)+'">'+(s==='all'?'全科目':esc(s))+'</button>').join('')+'</div>';
+  const cards=visible(),k=counts(cards),lg=logOf(today()),st=streak();
+  h+='<div class="panel"><div class="nums"><div class="num"><span>今日の復習</span><b>'+k.due+'<small>枚</small></b></div><div class="num"><span>今日の新しいカード</span><b>'+k.avail+'<small>枚</small></b></div><div class="num"><span>定着</span><b>'+k.learned+'<small> / '+k.total+'</small></b></div></div>';
+  h+=k.total?(k.due+k.avail?'<button class="btn big" data-act="srs-all" id="start-all">今日の学習を始める</button>':'<p class="small">今日の分は終わりました。もっと回すなら「全部回す」へ。</p>'):'<p class="small">まだカードがありません。下の「デッキを追加」か「カードの追加と管理」から入れてください。</p>';
+  h+='<p class="muted small">今日 '+(lg.n+lg.cram)+'回'+(lg.n?'（学習の正答率 '+Math.round((lg.n-lg.again)/lg.n*100)+'%）':'')+(st?'・'+st+'日連続':'')+'</p></div>';
+  const decks=D.decks.slice().sort((a,b)=>(a.order||0)-(b.order||0));
+  const rows=decks.map(d=>{const cs=cards.filter(c=>c.deckId===d.id);if(!cs.length&&S.filter!=='all')return '';const ck=counts(cs);
+    return '<li class="deck"><div style="min-width:0"><strong>'+esc(d.title||d.id)+'</strong><span class="muted small">復習 '+ck.due+'・新規 '+ck.fresh+'・定着 '+ck.learned+' / '+ck.total+'</span></div><div class="acts"><button class="btn" data-act="srs" data-deck="'+esc(d.id)+'" id="srs-'+esc(d.id)+'"'+(ck.due+Math.min(ck.fresh,k.avail)?'':' disabled')+'>学習</button><button class="btn line" data-act="cram" data-deck="'+esc(d.id)+'" id="cram-'+esc(d.id)+'"'+(ck.total?'':' disabled')+'>全部回す</button></div></li>'}).join('');
+  h+='<div class="panel"><h2>デッキ</h2>'+(rows?'<ul class="decks">'+rows+'</ul>':'<p class="muted small">デッキがありません。</p>')+'<p class="muted small">「学習」は忘れかけたころに出す復習、「全部回す」はデッキを最後まで一気に回します。「全部回す」は復習の予定を変えません。</p><div class="row"><button class="btn line" data-act="library" id="to-library">デッキを追加</button><button class="btn line" data-act="manage" id="to-manage">カードの追加と管理</button></div></div>';
+  h+='<div class="panel"><h2>設定</h2><div class="grid2"><label>1日に増やす新しいカード（枚）<input type="number" id="new-limit" min="0" max="500" value="'+newLimit()+'"></label><label>テストの初日<input type="date" id="exam-date" value="'+esc(D.examDate||'')+'"></label></div><p class="muted small">復習の間隔は、テストの前日を越えないように調整されます。キーボード：スペース＝答えを見る／おすすめの評価、1〜4＝選択肢や評価、Z＝1つ戻す、Esc＝終える</p></div>';
+  h+=installTip();
+  el.innerHTML=h;
+}
+function renderStudy(){
+  const el=$('study'),r=S.run;
+  if(!r){go('home');return}
+  const c=r.queue[0];
+  if(!c){
+    const missN=r.missed.size;
+    el.innerHTML='<div class="screen" style="padding-top:8px"><div class="panel"><h2>'+(r.mode==='srs'?'今日の分が終わりました':'全部回しました')+'</h2><p>'+(r.mode==='srs'?r.done+'回解きました。「もう一度」は'+missN+'枚でした。次は忘れかけたころに出てきます。':r.total+'枚を回しました。1回目で正解したのは'+r.right+'枚、間違えたのは'+missN+'枚です。')+'</p><div class="row">'+(missN?'<button class="btn" data-act="cram-missed" id="cram-missed">間違えた'+missN+'枚だけ回す</button>':'')+'<button class="btn line" data-act="home" id="fin-home">ホームへ</button></div></div></div>';
+    return;
+  }
+  const total=r.done+r.queue.length,p=total?Math.round(r.done/total*100):0,s=stateOf(c.key);
+  let h='<div class="bar"><button class="btn text" data-act="end" id="s-end">終える</button><span class="small muted">'+(r.mode==='srs'?'学習':'全部回す')+'・残り'+r.queue.length+'枚</span><button class="btn text" data-act="undo" id="s-undo"'+(r.history.length?'':' disabled')+'>1つ戻す</button></div><div class="prog"><i style="width:'+p+'%"></i></div>';
+  h+='<div class="cardwrap"><div class="wcard"><div class="meta"><span>'+esc(c.subject)+(c.category?'・'+esc(c.category):'')+'</span><span>'+esc(c.deckTitle)+'</span>'+(r.mode==='srs'&&!s?'<span class="tag">新しいカード</span>':'')+'</div><p class="front">'+esc(c.front)+'</p>';
+  if(c.options)h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.pick===i?' wrong':'')):'';return '<button class="opt'+cls+'" data-pick="'+i+'" id="opt-'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
+  if(r.shown){
+    const head=c.options?(r.pick===c.answer?'<b>○ 正解</b>　':'<b style="color:var(--again)">× 正解は'+MARK[c.answer]+'</b>　'):'';
+    h+='<div class="answer">'+head+esc(c.back)+'</div>';
+  }else if(!c.options)h+='<button class="cover" data-act="reveal" id="s-cover">タップで答えを見る</button>';
+  h+='</div></div><div class="controls">';
+  if(!r.shown)h+=c.options?'<p class="hint">選択肢をタップ（1〜'+c.options.length+'キー）</p>':'<button class="btn big" data-act="reveal" id="s-reveal">答えを見る</button>';
+  else if(r.mode==='srs'){
+    const rec=recommended();
+    h+='<div class="rate">'+[[1,'もう一度'],[2,'難しい'],[3,'正解'],[4,'簡単']].map(([v,l])=>'<button class="r'+v+(v===rec?' rec':'')+'" data-rate="'+v+'" id="rate-'+v+'">'+l+'<small>'+ivlLabel(schedule(s,v))+'</small></button>').join('')+'</div>';
+  }else{
+    const ok=!c.options||r.pick===c.answer;
+    h+='<div class="rate two"><button class="r1'+(ok?'':' rec')+'" data-cram="0" id="cram-ng">× まだ<small>あとでもう一度</small></button><button class="r3'+(ok?' rec':'')+'" data-cram="1" id="cram-ok">○ わかった<small>次へ</small></button></div>';
+  }
+  el.innerHTML=h+'</div>';
+}
+function renderLibrary(){
+  const groups=libGroups();
+  let h='<div class="top"><h1>デッキを追加</h1><button class="btn line" data-act="home" id="l-back">戻る</button></div>';
+  h+=groups.map(g=>'<div class="panel"><h2>'+esc(g.name)+'</h2><ul class="decks">'+g.decks.map(l=>{const ins=D.decks.find(d=>d.id===l.id);const old=ins&&(ins.version||1)<(l.version||1);
+    const key='lib:'+l.id;
+    return '<li class="deck"><div style="min-width:0"><strong>'+esc(l.title)+'</strong><span class="muted small">'+(l.cards||[]).length+'枚'+(ins?'・入れ済み':'')+(old?'・新しい版があります':'')+'</span></div><div class="acts">'+(!ins?'<button class="btn" data-act="lib-add" data-id="'+esc(l.id)+'" id="la-'+esc(l.id)+'">入れる</button>':(old?'<button class="btn" data-act="lib-add" data-id="'+esc(l.id)+'" id="lu-'+esc(l.id)+'">更新する</button>':'')+'<button class="btn text'+(S.confirm===key?' danger':'')+'" data-act="lib-remove" data-id="'+esc(l.id)+'" id="lr-'+esc(l.id)+'">'+(S.confirm===key?'本当に外す（進み具合も消えます）':'外す')+'</button>')+'</div></li>'}).join('')+'</ul>'+(g.decks.some(l=>!D.decks.find(d=>d.id===l.id))?'<button class="btn line" data-act="lib-add-group" data-group="'+esc(g.name)+'" id="lg-'+esc(g.name)+'">まとめて入れる</button>':'')+'</div>').join('');
+  h+='<div class="panel"><h2>自分でデッキを作る</h2><p class="muted small">「カードの追加と管理」で、名前を付けたデッキを作り、カードを1枚ずつかまとめて追加できます。</p><button class="btn line" data-act="manage" id="l-manage">カードの追加と管理へ</button></div>';
+  $('library').innerHTML=h;
+}
+function renderManage(){
+  const ud=userDecks();
+  if(!S.manageDeck||!ud.find(d=>d.id===S.manageDeck))S.manageDeck=ud.length?ud[0].id:'__new';
+  $('m-deck').innerHTML=ud.length?ud.map(d=>'<option value="'+esc(d.id)+'"'+(d.id===S.manageDeck?' selected':'')+'>'+esc(d.title)+'（'+d.cards.length+'枚）</option>').join(''):'<option value="__new">自分のカード（追加すると作られます）</option>';
+  const d=ud.find(x=>x.id===S.manageDeck);
+  $('m-count').textContent=d?d.cards.length+'枚':'';
+  if(!d){$('m-list').innerHTML='<p class="muted small">カードを追加すると、「自分のカード」デッキができます。名前を付けたいときは、先に上でデッキを作ってください。</p>';return}
+  const delKey='deck:'+d.id;
+  $('m-list').innerHTML=(d.cards.length?'<ul class="mlist">'+d.cards.slice().reverse().map(c=>{const k='card:'+c.id;return '<li><div>'+esc(c.front)+'\n<span class="muted">'+esc(c.back)+'</span></div><button class="btn text'+(S.confirm===k?' danger':'')+'" data-act="del-card" data-id="'+esc(c.id)+'" id="dc-'+esc(c.id)+'">'+(S.confirm===k?'本当に削除':'削除')+'</button></li>'}).join('')+'</ul>':'<p class="muted small">このデッキにはまだカードがありません。</p>')+'<div class="row"><button class="btn text'+(S.confirm===delKey?' danger':'')+'" data-act="del-deck" id="dd-'+esc(d.id)+'">'+(S.confirm===delKey?'本当にデッキを削除（進み具合も消えます）':'このデッキを削除')+'</button></div>';
+}
+function render(){
+  ['welcome','home','study','library','manage'].forEach(s=>{$(s).hidden=S.screen!==s});
+  if(S.screen==='welcome')renderWelcome();
+  if(S.screen==='home')renderHome();
+  if(S.screen==='study')renderStudy();
+  if(S.screen==='library')renderLibrary();
+  if(S.screen==='manage')renderManage();
+}
+
+/* backup */
+function backupText(){return JSON.stringify({app:'speed-anki',version:1,exportedAt:new Date().toISOString(),data:D})}
+function parseBackup(text){
+  const o=JSON.parse(text),d=o&&o.data?o.data:o;
+  if(!d||!Array.isArray(d.decks)||!d.srs)throw new Error('bad');
+  return d;
+}
+function askImport(text){
+  try{S.pendingImport=parseBackup(text)}catch(e){S.pendingImport=null;$('imp-msg').innerHTML='<p class="err">バックアップとして読み込めませんでした。書き出したファイルかテキストをそのまま使ってください。</p>';return}
+  const n=S.pendingImport.decks.reduce((a,d)=>a+(d.cards||[]).length,0);
+  $('imp-msg').innerHTML='<p class="small">デッキ'+S.pendingImport.decks.length+'個・カード'+n+'枚のバックアップです。今のデータはすべて置き換わります。</p><div class="row"><button class="btn" data-act="import-confirm" id="imp-confirm">このバックアップで置き換える</button><button class="btn text" data-act="import-cancel" id="imp-cancel">やめる</button></div>';
+}
+async function exportFile(){
+  const text=backupText(),name='anki-backup-'+today()+'.json';
+  try{
+    const file=new File([text],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'暗記帳のバックアップ'});return}
+  }catch(e){if(e&&e.name==='AbortError')return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);
+}
+
+/* events */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const a=b.dataset.act;
+  if(b.dataset.filter){S.filter=b.dataset.filter;return renderHome()}
+  if(b.dataset.pick!==undefined)return pick(Number(b.dataset.pick));
+  if(b.dataset.rate)return rate(Number(b.dataset.rate));
+  if(b.dataset.cram!==undefined)return cram(b.dataset.cram==='1');
+  if(!a)return;
+  switch(a){
+    case 'home':case 'end':return go('home');
+    case 'library':return go('library');
+    case 'manage':return go('manage');
+    case 'reveal':return reveal();
+    case 'undo':return undo();
+    case 'srs-all':return startSrs(visible());
+    case 'srs':return startSrs(visible().filter(c=>c.deckId===b.dataset.deck));
+    case 'cram':return startCram(visible().filter(c=>c.deckId===b.dataset.deck));
+    case 'cram-missed':{if(!S.run)return;const keys=S.run.missed;return startCram(allCards().filter(c=>keys.has(c.key)))}
+    case 'setup-group':{const g=libGroups()[Number(b.dataset.group)];if(g)g.decks.forEach(l=>installLib(l.id));D.setup=true;persist();return go('home')}
+    case 'setup-empty':D.setup=true;persist();return go('manage');
+    case 'lib-add':installLib(b.dataset.id);persist();return renderLibrary();
+    case 'lib-add-group':{const g=libGroups().find(x=>x.name===b.dataset.group);if(g)g.decks.forEach(l=>{if(!D.decks.find(d=>d.id===l.id))installLib(l.id)});persist();return renderLibrary()}
+    case 'lib-remove':{const k='lib:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderLibrary()}S.confirm=null;removeDeck(b.dataset.id);return renderLibrary()}
+    case 'del-card':{const k='card:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderManage()}S.confirm=null;const d=userDecks().find(x=>x.id===S.manageDeck);if(d){d.cards=d.cards.filter(c=>c.id!==b.dataset.id);const st=Object.assign({},D.srs.cards);delete st[d.id+':'+b.dataset.id];D.srs.cards=st;persist()}return renderManage()}
+    case 'del-deck':{const k='deck:'+S.manageDeck;if(S.confirm!==k){S.confirm=k;return renderManage()}S.confirm=null;removeDeck(S.manageDeck);S.manageDeck=null;return renderManage()}
+    case 'export-file':return exportFile();
+    case 'export-copy':{const t=backupText();if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>{$('imp-msg').innerHTML='<p class="ok">コピーしました。メモアプリなどに貼って保存してください。</p>'},()=>fallbackCopy(t))}else fallbackCopy(t);return}
+    case 'import-text':return askImport($('imp-text').value);
+    case 'import-confirm':{if(!S.pendingImport)return;const b0=blank();D=Object.assign(b0,S.pendingImport,{srs:Object.assign(b0.srs,S.pendingImport.srs||{}),setup:true});S.pendingImport=null;persist();$('imp-text').value='';$('imp-msg').innerHTML='<p class="ok">読み込みました。</p>';return renderManage()}
+    case 'import-cancel':S.pendingImport=null;$('imp-msg').innerHTML='';return;
+  }
+});
+function fallbackCopy(t){const ta=$('imp-text');ta.value=t;ta.focus();ta.select();$('imp-msg').innerHTML='<p class="small">自動でコピーできなかったので、上の欄に表示しました。長押しして「すべて選択」→「コピー」してください。</p>'}
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='new-limit'){D.srs.newLimit=Math.max(0,Math.min(500,Math.round(Number(t.value)||0)));persist();return renderHome()}
+  if(t.id==='exam-date'){D.examDate=t.value||'';persist();return renderHome()}
+  if(t.id==='m-deck'){S.manageDeck=t.value;S.confirm=null;return renderManage()}
+  if(t.id==='imp-file'&&t.files&&t.files[0]){const fr=new FileReader();fr.onload=()=>askImport(String(fr.result||''));fr.readAsText(t.files[0]);t.value=''}
+});
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  const tag=((e.target&&e.target.tagName)||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||tag==='select')return;
+  if(S.screen!=='study'||!S.run)return;
+  const r=S.run,c=r.queue[0];
+  if(e.key==='Escape'){e.preventDefault();return go('home')}
+  if(e.key==='z'||e.key==='Z'||e.key==='Backspace'){e.preventDefault();return undo()}
+  if(!c)return;
+  if(!r.shown){
+    if(c.options&&/^[1-9]$/.test(e.key)&&Number(e.key)<=c.options.length){e.preventDefault();return pick(Number(e.key)-1)}
+    if(!c.options&&(e.key===' '||e.key==='Enter')){e.preventDefault();return reveal()}
+    return;
+  }
+  if(r.mode==='srs'){
+    if(/^[1-4]$/.test(e.key)){e.preventDefault();return rate(Number(e.key))}
+    if(e.key===' '||e.key==='Enter'){e.preventDefault();return rate(recommended())}
+  }else{
+    if(e.key==='1'||e.key==='ArrowLeft'){e.preventDefault();return cram(false)}
+    if(e.key==='2'||e.key==='ArrowRight'||e.key===' '||e.key==='Enter'){e.preventDefault();return cram(true)}
+  }
+});
+document.addEventListener('submit',e=>{
+  e.preventDefault();
+  const id=e.target.id;
+  if(id==='nd-form'){
+    const title=$('nd-title').value.trim();
+    if(!title){setMsg('nd-msg','デッキの名前を書いてください。');return}
+    const d=createDeck(title,$('nd-subject').value);S.manageDeck=d.id;$('nd-title').value='';setMsg('nd-msg','「'+title+'」を作りました。',true);renderManage();
+  }
+  if(id==='one-form'){
+    const front=$('m-front').value.trim(),back=$('m-back').value.trim();
+    if(!front||!back){setMsg('m-msg','表と裏の両方を書いてください。');return}
+    addCards([{front,back}]);$('m-front').value='';$('m-back').value='';setMsg('m-msg','追加しました。',true);renderManage();
+  }
+  if(id==='bulk-form'){
+    const lines=$('b-text').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean),list=[],bad=[];
+    lines.forEach((l,i)=>{const p=l.split(/\t|｜|\|/);const f=(p[0]||'').trim(),bk=p.slice(1).join(' / ').trim();if(p.length>=2&&f&&bk)list.push({front:f,back:bk});else bad.push(i+1)});
+    if(!list.length){setMsg('b-msg','追加できる行がありません。表と裏を「｜」で区切ってください。');return}
+    addCards(list);$('b-text').value='';setMsg('b-msg',list.length+'枚追加しました。'+(bad.length?'区切りのない行（'+bad.slice(0,10).join(', ')+(bad.length>10?' など':'')+'行目）は飛ばしました。':''),true);renderManage();
+  }
+});
+
+$('nd-subject').innerHTML=SUBJECTS.map(s=>'<option>'+s+'</option>').join('');
+/* keep built-in decks current: update installed decks when the library has a newer version */
+let changed=false;D.decks.forEach(d=>{if(!d.builtin)return;const l=LIB.find(x=>x.id===d.id);if(l&&(l.version||1)>(d.version||1)){installLib(d.id);changed=true}});if(changed)persist();
+render();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})})}
+})();
+</script>
+</body>
+</html>
