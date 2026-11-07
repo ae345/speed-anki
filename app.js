@@ -211,7 +211,9 @@ function schedule(){
   const pending=units.filter(u=>!doneDate(u.id));
   pending.filter(u=>u.extra).forEach(u=>{const d=u.fixedDate<t0?t0:u.fixedDate;(res.days[d]=res.days[d]||[]).push(Object.assign({},u,{late:u.fixedDate<t0}))});
   const subj={};subjectsOf().forEach(s=>{const dl=deadlineOf(s);subj[s.id]={dl,span:Math.max(1,diffDays(t0,dl))}});
-  const phase=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return s.dl;const c=u.cycles;let f;if(c===1)f=0.85;else if(u.cycle===1)f=0.45;else f=0.45+(0.92-0.45)*(u.cycle-1)/(c-1);return shift(t0,Math.floor(s.span*f))};
+  /* each cycle has a window: it may start at `start` and should be done by `phase` (both as fractions of the days left) */
+  const phase=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return s.dl;const n=u.cycles;const f=n===1?0.85:Math.min(0.95,u.cycle/n);return shift(t0,Math.floor(s.span*f))};
+  const startOf=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return shift(s.dl,-1);const n=u.cycles;let f=u.cycle===1?0:Math.min(0.85,(u.cycle-1)/n*1.1);if((u.decks||[]).length)f=u.cycle===1?Math.max(f,0.3):Math.min(0.9,f+0.05);return shift(t0,Math.floor(s.span*f))};
   const rr={},groups={};
   pending.filter(u=>!u.extra).forEach(u=>{(groups[u.cycle]=groups[u.cycle]||{});(groups[u.cycle][u.subjectId]=groups[u.cycle][u.subjectId]||[]).push(u)});
   Object.keys(groups).forEach(k=>{
@@ -219,7 +221,7 @@ function schedule(){
     const total=ids.reduce((a,i)=>a+(g[i][0].weight||1),0);let left=ids.reduce((a,i)=>a+g[i].length,0),idx=0;
     while(left>0){ids.forEach(i=>{if(g[i].length)credit[i]+=g[i][0].weight||1});let best=null;ids.forEach(i=>{if(g[i].length&&(best===null||credit[i]>credit[best]))best=i});const u=g[best].shift();credit[best]-=total;rr[u.id]=idx++;left--}
   });
-  const queue=pending.filter(u=>!u.extra).map(u=>Object.assign({},u,{pdl:phase(u),rr:rr[u.id]||0})).sort((a,b)=>a.pdl<b.pdl?-1:a.pdl>b.pdl?1:(a.cycle-b.cycle)||(a.rr-b.rr));
+  const queue=pending.filter(u=>!u.extra).map(u=>Object.assign({},u,{pdl:phase(u),start:startOf(u),rr:rr[u.id]||0})).sort((a,b)=>a.pdl<b.pdl?-1:a.pdl>b.pdl?1:(a.cycle-b.cycle)||(a.rr-b.rr));
   res.totalMin=queue.reduce((a,u)=>a+u.min,0);
   const placed={};
   const prevId=u=>u.cycle>1&&!u.final?u.subjectId+':'+u.item+':c'+(u.cycle-1):null;
@@ -229,8 +231,8 @@ function schedule(){
     const list=res.days[d]=res.days[d]||[],full=capacity(d);
     let cap=full-list.reduce((a,u)=>a+(u.min||0),0);const startLen=list.length;
     for(let i=0;i<queue.length&&cap>=10;){
-      const u=queue[i],p=prevId(u);let minD=t0;
-      if(p&&byId[p]){const pd=placed[p]||doneDate(p);if(!pd){i++;continue}minD=shift(pd,2)}
+      const u=queue[i],p=prevId(u);let minD=u.start>t0?u.start:t0;
+      if(p&&byId[p]){const pd=placed[p]||doneDate(p);if(!pd){i++;continue}const m2=shift(pd,2);if(m2>minD)minD=m2}
       if(u.final&&d<subj[u.subjectId].dl&&queue.some(x=>x!==u&&x.subjectId===u.subjectId)){i++;continue}
       if(d<minD){i++;continue}
       if(u.min<=cap||(list.length===startLen&&cap>=full*0.5)){
