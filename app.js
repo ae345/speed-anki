@@ -213,7 +213,7 @@ function schedule(){
   const subj={};subjectsOf().forEach(s=>{const dl=deadlineOf(s);subj[s.id]={dl,span:Math.max(1,diffDays(t0,dl))}});
   /* each cycle has a window: it may start at `start` and should be done by `phase` (both as fractions of the days left) */
   const phase=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return s.dl;const n=u.cycles;const f=n===1?0.85:Math.min(0.95,u.cycle/n);return shift(t0,Math.floor(s.span*f))};
-  const startOf=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return shift(s.dl,-1);const n=u.cycles;let f=u.cycle===1?0:Math.min(0.85,(u.cycle-1)/n*1.1);if((u.decks||[]).length)f=u.cycle===1?Math.max(f,0.3):Math.min(0.9,f+0.05);return shift(t0,Math.floor(s.span*f))};
+  const startOf=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return shift(s.dl,-3);const n=u.cycles;let f=u.cycle===1?0:Math.min(0.85,(u.cycle-1)/n*1.1);if((u.decks||[]).length)f=u.cycle===1?Math.max(f,0.3):Math.min(0.9,f+0.05);return shift(t0,Math.floor(s.span*f))};
   const rr={},groups={};
   pending.filter(u=>!u.extra).forEach(u=>{(groups[u.cycle]=groups[u.cycle]||{});(groups[u.cycle][u.subjectId]=groups[u.cycle][u.subjectId]||[]).push(u)});
   Object.keys(groups).forEach(k=>{
@@ -230,16 +230,21 @@ function schedule(){
   while(queue.length&&guard<500){
     const list=res.days[d]=res.days[d]||[],full=capacity(d);
     let cap=full-list.reduce((a,u)=>a+(u.min||0),0);const startLen=list.length;
-    for(let i=0;i<queue.length&&cap>=10;){
-      const u=queue[i],p=prevId(u);let minD=u.start>t0?u.start:t0;
-      if(p&&byId[p]){const pd=placed[p]||doneDate(p);if(!pd){i++;continue}const m2=shift(pd,2);if(m2>minD)minD=m2}
-      if(u.final&&d<subj[u.subjectId].dl&&queue.some(x=>x!==u&&x.subjectId===u.subjectId)){i++;continue}
-      if(d<minD){i++;continue}
-      if(u.min<=cap||(list.length===startLen&&cap>=full*0.5)){
-        const late=subj[u.subjectId]&&d>subj[u.subjectId].dl;
-        list.push(Object.assign({},u,{late}));if(late)res.late.push(u);
-        placed[u.id]=d;cap-=u.min;queue.splice(i,1);
-      }else i++;
+    /* pass 0: only work whose window is open. pass 1: if the day is still under 60% full, pull work forward from the next 5 days. */
+    for(let pass=0;pass<2;pass++){
+      if(pass===1&&cap<full*0.4)break;
+      const horizon=pass===0?d:shift(d,5);
+      for(let i=0;i<queue.length&&cap>=10;){
+        const u=queue[i],p=prevId(u);const win=u.start>t0?u.start:t0;let gap=t0;
+        if(p&&byId[p]){const pd=placed[p]||doneDate(p);if(!pd){i++;continue}gap=shift(pd,2)}
+        if(u.final&&d<subj[u.subjectId].dl&&queue.some(x=>x!==u&&x.subjectId===u.subjectId)){i++;continue}
+        if(d<gap||win>horizon||(pass===1&&u.final)){i++;continue}
+        if(u.min<=cap||(list.length===startLen&&cap>=full*0.5)){
+          const late=subj[u.subjectId]&&d>subj[u.subjectId].dl;
+          list.push(Object.assign({},u,{late}));if(late)res.late.push(u);
+          placed[u.id]=d;cap-=u.min;queue.splice(i,1);
+        }else i++;
+      }
     }
     if(list.length)res.lastDay=d;
     d=shift(d,1);guard++;
