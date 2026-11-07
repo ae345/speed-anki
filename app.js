@@ -75,9 +75,13 @@ function persist(){D.updatedAt=Date.now();S.sched=null;saveLocal();schedulePush(
 function touchSettings(){D.settings.updatedAt=Date.now()}
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 
-/* ---------- sync (Firebase, optional) ---------- */
-let SYNC=null,pushTimer=null,lastRev='';
+/* ---------- sync with the PC server ---------- */
+const IS_PC=['localhost','127.0.0.1'].includes(location.hostname);
+const LKEY='speed-anki-link';
+let LINK=(()=>{try{return JSON.parse(localStorage.getItem(LKEY)||'null')||{}}catch(e){return {}}})();
+function saveLink(){try{localStorage.setItem(LKEY,JSON.stringify(LINK))}catch(e){}}
 const syncInfo={state:'off',at:0,msg:''};
+let pushTimer=null,pollTimer=null,busy=null,srvRev=0,srvJson=null;
 function strip(d){const o=Object.assign({},d);delete o.updatedAt;o.decks=d.decks.map(dk=>dk.builtin?{id:dk.id,builtin:true,version:dk.version||1,title:dk.title,subject:dk.subject,order:dk.order||0,updatedAt:dk.updatedAt||0}:dk);return o}
 function later(x,y,f){const r=Object.assign({},x||{});Object.keys(y||{}).forEach(k=>{const yv=y[k],xv=r[k];if(!xv||((yv&&yv[f])||0)>((xv&&xv[f])||0))r[k]=yv});return r}
 function maxNum(x,y){const r=Object.assign({},x||{});Object.keys(y||{}).forEach(k=>{r[k]=Math.max(Number(r[k])||0,Number(y[k])||0)});return r}
@@ -96,40 +100,93 @@ function merge(a,b){
   return o;
 }
 function rerenderSettings(){if(S.screen==='settings')renderSettings()}
-function syncClose(){clearTimeout(pushTimer);if(SYNC){try{SYNC.close()}catch(e){}SYNC=null}}
-async function syncConnect(){
-  syncClose();
-  const code=prof().code;
-  if(!code){syncInfo.state='off';rerenderSettings();return}
-  if(!window.FIREBASE_CONFIG){syncInfo.state='noconfig';rerenderSettings();return}
-  syncInfo.state='connecting';syncInfo.msg='';rerenderSettings();
-  try{
-    const m=await import('./sync.js');
-    const conn=await m.connect(window.FIREBASE_CONFIG,code,onRemote,err=>{syncInfo.state='error';syncInfo.msg=String((err&&err.code)||err);rerenderSettings()});
-    if(prof().code!==code){conn.close();return}
-    SYNC=conn;syncInfo.state='ok';rerenderSettings();
-  }catch(e){syncInfo.state='error';syncInfo.msg=String((e&&(e.code||e.message))||e);rerenderSettings()}
+const linked=()=>!!prof().srv&&(IS_PC||!!LINK.key);
+function fetchT(url,opt,ms){const ac=new AbortController();const t=setTimeout(()=>ac.abort(),ms||10000);return fetch(url,Object.assign({},opt,{signal:ac.signal})).finally(()=>clearTimeout(t))}
+/* The PC's address changes when it restarts; it is published in a gist that the app reads. */
+async function discover(){
+  if(!window.SYNC_DISCOVERY)throw new Error('discovery');
+  const r=await fetchT(window.SYNC_DISCOVERY,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'},8000);
+  const j=await r.json();const c=JSON.parse(((j.files||{})['server.json']||{}).content||'{}');
+  if(!c.url)throw new Error('PCが起動していません');
+  LINK.base=c.url;saveLink();return c.url;
 }
-function onRemote(data){
-  syncInfo.at=Date.now();syncInfo.state='ok';
-  if(!data){schedulePush(0);rerenderSettings();return}
-  if(data.device===DEVICE&&data.rev===lastRev){rerenderSettings();return}
-  let remote;try{remote=normalize(JSON.parse(data.json))}catch(e){return}
+async function api(path,opt){
+  opt=opt||{};
+  const headers={'Content-Type':'application/json'};if(LINK.key&&!IS_PC)headers['X-Key']=LINK.key;
+  const go=async base=>{const r=await fetchT(base+path,{method:opt.method||'GET',headers,body:opt.body?JSON.stringify(opt.body):undefined,cache:'no-store'},opt.ms||10000);let j=null;try{j=await r.json()}catch(e){}return {status:r.status,body:j}};
+  if(IS_PC)return go(location.origin);
+  if(LINK.base){try{const r=await go(LINK.base);if(r.status!==530&&r.status!==502&&r.status!==404)return r}catch(e){}}
+  return go(await discover());
+}
+function syncRun(fn){busy=(busy||Promise.resolve()).then(fn,fn).catch(()=>{});return busy}
+function mergeRemote(json){
+  let remote;try{remote=normalize(JSON.parse(json))}catch(e){return}
   const before=stable(strip(D)),merged=merge(D,remote),after=stable(strip(merged));
-  if(after!==before){D=merged;S.sched=null;saveLocal();if(S.screen==='planner')renderPreview();else if(S.screen!=='study'&&S.screen!=='focus')render()}
-  if(after!==data.json)schedulePush();
+  if(after!==before){D=merged;S.sched=null;saveLocal();if(S.screen==='planner')renderPreview();else if(!['study','focus','settings'].includes(S.screen))render()}
+}
+function syncFail(e){syncInfo.state='offline';syncInfo.msg=String((e&&e.message)||e)}
+function unpaired(){syncInfo.state='unpaired';LINK.key='';saveLink();clearInterval(pollTimer)}
+async function pullNow(){
+  if(!linked())return;
+  const pid=prof().srv;
+  try{
+    const r=await api('/api/data/'+encodeURIComponent(pid));
+    if(r.status===401){unpaired();return rerenderSettings()}
+    if(r.status!==200)throw new Error('HTTP '+r.status);
+    if(prof().srv!==pid)return;
+    srvRev=r.body.rev||0;srvJson=r.body.json;
+    if(r.body.json)mergeRemote(r.body.json);
+    if(stable(strip(D))!==srvJson)schedulePush(0);
+    syncInfo.state='ok';syncInfo.at=Date.now();
+  }catch(e){syncFail(e)}
   rerenderSettings();
 }
-function schedulePush(delay){if(!SYNC)return;clearTimeout(pushTimer);pushTimer=setTimeout(pushNow,delay==null?1200:delay)}
 async function pushNow(){
-  if(!SYNC)return;
-  const json=stable(strip(D));lastRev=rid(8);
-  try{await SYNC.push({json,updatedAt:Date.now(),device:DEVICE,rev:lastRev});syncInfo.state='ok';syncInfo.at=Date.now()}
-  catch(e){syncInfo.state='error';syncInfo.msg=String((e&&e.code)||e)}
+  if(!linked())return;
+  const pid=prof().srv;
+  for(let attempt=0;attempt<3;attempt++){
+    const json=stable(strip(D));
+    if(json===srvJson)break;
+    try{
+      const r=await api('/api/data/'+encodeURIComponent(pid),{method:'PUT',body:{baseRev:srvRev,json}});
+      if(prof().srv!==pid)return;
+      if(r.status===200){srvRev=r.body.rev;srvJson=json;syncInfo.state='ok';syncInfo.at=Date.now();break}
+      if(r.status===409){srvRev=r.body.rev||0;srvJson=r.body.json;if(r.body.json)mergeRemote(r.body.json);continue}
+      if(r.status===401){unpaired();break}
+      throw new Error('HTTP '+r.status);
+    }catch(e){syncFail(e);break}
+  }
   rerenderSettings();
 }
-const fmtCode=c=>String(c||'').match(/.{1,4}/g).join('-');
-const cleanCode=c=>String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+function schedulePush(delay){if(!linked())return;clearTimeout(pushTimer);pushTimer=setTimeout(()=>syncRun(pushNow),delay==null?1500:delay)}
+function syncStart(){
+  clearInterval(pollTimer);clearTimeout(pushTimer);srvRev=0;srvJson=null;
+  if(!linked()){syncInfo.state='off';rerenderSettings();return}
+  syncInfo.state='connecting';syncRun(pullNow);
+  pollTimer=setInterval(()=>{if(!document.hidden)syncRun(pullNow)},20000);
+}
+/* On the PC, the people list mirrors the server's. "自分" on the server is this PC's original profile. */
+let SRV_PROFILES=null,PC_STATUS=null,PAIR=null;
+function mirrorProfiles(list){
+  SRV_PROFILES=list;
+  list.forEach(sp=>{
+    let p=P.list.find(x=>x.srv===sp.id);
+    if(!p&&sp.id==='me'){p=P.list.find(x=>x.id==='default');if(p)p.srv='me'}
+    if(!p){p={id:'srv-'+sp.id,name:sp.name,srv:sp.id};P.list.push(p)}
+    p.name=sp.name;
+  });
+  saveProfiles();
+}
+async function pcRefresh(){
+  if(!IS_PC)return;
+  try{
+    const [a,b]=await Promise.all([api('/api/profiles'),api('/api/status')]);
+    if(a.status===200){const wasLinked=linked();mirrorProfiles(a.body.profiles);if(!wasLinked&&linked())syncStart()}
+    if(b.status===200)PC_STATUS=b.body;
+  }catch(e){PC_STATUS={error:String(e.message||e)}}
+  rerenderSettings();
+}
+const syncLabel=()=>syncInfo.state==='ok'?'<span class="ok">同期済み（'+new Date(syncInfo.at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'）</span>':syncInfo.state==='connecting'?'<span class="muted">PCに接続しています</span>':syncInfo.state==='offline'?'<span class="err">PCにつながりません（あとで自動で同期します）</span>':syncInfo.state==='unpaired'?'<span class="err">PCとのつながりが切れました。もう一度番号を入れてください。</span>':'';
 
 /* ---------- cards & spaced repetition ---------- */
 function allCards(){
@@ -366,7 +423,7 @@ function renderWelcome(){
   h+='<div class="panel"><p>テストの日と範囲を入れると、アプリが毎日のやることを自動で組みます。やり残しが出ても、次に開いたときに組み直されます。毎日「今日」を開いて、上から押していけば終わります。</p></div>';
   h+='<div class="panel"><h2>どうやって始めますか？</h2>'+PRESETS.map((p,i)=>'<button class="btn big" data-act="setup-preset" data-i="'+i+'">'+esc(p.title)+'</button><p class="muted small">'+esc(p.note||'')+'</p>').join('');
   h+='<button class="btn line" data-act="setup-blank">自分で範囲を入れて始める</button>';
-  h+=(window.FIREBASE_CONFIG?'<label>ほかの端末で設定済みなら、同期コードを入力<input type="text" id="w-code" placeholder="例：ABCD-EFGH-JKLM-NPQR" autocapitalize="characters" autocomplete="off"></label><div class="row"><button class="btn line" data-act="join-welcome">同期して始める</button><span id="w-msg"></span></div>':'')+'</div>';
+  h+=(IS_PC?'':'<button class="btn line" data-act="tab" data-tab="settings">PCで計画を作ってあるなら、PCとつなぐ</button>')+'</div>';
   h+=installTip();
   $('welcome').innerHTML=h;
 }
@@ -464,24 +521,33 @@ function renderDecks(){
   h+='<div class="panel"><h2>デッキ</h2>'+(rows?'<ul class="decks">'+rows+'</ul>':'<p class="muted small">デッキがありません。</p>')+'<p class="muted small">「学習」は忘れかけたころに出す復習、「全部回す」はデッキを最後まで一気に回します（復習の予定は変えません）。</p><div class="row"><button class="btn line" data-act="library">デッキを追加</button><button class="btn line" data-act="manage">カードの追加と管理</button></div></div>';
   $('decks').innerHTML=h;
 }
+function renderSyncPanel(){
+  const st=PC_STATUS||{},tun=st.tunnel||{};
+  if(IS_PC){
+    let h='<p class="small">'+(st.error?'<span class="err">サーバーの状態を読めませんでした。</span>':tun.state==='up'?'<span class="ok">サーバーは動いていて、外からもつながります。</span>':tun.state==='missing'?'<span class="err">cloudflared が見つからないため、外からはつながりません。</span>':'<span class="muted">外からつながる道を準備しています。</span>')+(st.devices!=null?'　つながっているスマホ：'+st.devices+'台':'')+'</p>';
+    if(tun.url)h+='<p class="muted small">外からのアドレス：'+esc(tun.url)+'（PCを再起動すると変わりますが、アプリが自動で探します）</p>';
+    h+='<p class="small">スマホをつなぐときは、下のボタンで番号を出し、スマホのアプリの「設定」→「PCとつなぐ」に入れます。</p><div class="row"><button class="btn" data-act="pc-code">スマホをつなぐ番号を出す</button></div>';
+    if(PAIR&&PAIR.exp>Date.now())h+='<p class="code">'+esc(PAIR.code.slice(0,3)+' '+PAIR.code.slice(3))+'</p><p class="muted small" style="text-align:center">'+new Date(PAIR.exp).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'まで使えます。1回使うと消えます。</p>';
+    h+='<p class="small">'+syncLabel()+'</p>';
+    return h;
+  }
+  if(!LINK.key){
+    return '<p class="small">PCとつなぐと、PCで変えた計画がこのスマホに届き、ここでつけた完了の印もPCに送られます。</p><ol class="steps"><li>PCで暗記帳を開き、「設定」→「スマホをつなぐ番号を出す」を押す</li><li>出てきた6桁の番号を下に入れる</li></ol><label>PCに出ている6桁の番号<input type="text" id="pair-code" inputmode="numeric" maxlength="7" placeholder="例：123 456" autocomplete="off"></label><div class="row"><button class="btn" data-act="pair-go">つなぐ</button><span id="pair-msg"></span></div>';
+  }
+  if(!prof().srv){
+    const list=S.pairProfiles||SRV_PROFILES||[];
+    return '<p class="small">つながりました。このスマホを使う人を選んでください。</p><div class="row">'+(list.length?list.map(p=>'<button class="btn line" data-act="pair-pick" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">'+esc(p.name)+'</button>').join(''):'<button class="btn line" data-act="pair-list">使う人を読み込む</button>')+'</div><p class="muted small">選ぶと、このスマホにあるデータはその人のデータとまとめられます。</p><span id="pair-msg"></span>';
+  }
+  return '<p class="small">'+(syncLabel()||'<span class="muted">準備しています</span>')+'</p><p class="muted small">「'+esc(prof().name)+'」としてPCと同期しています。開いている間は20秒ごとに確かめます。</p><div class="row"><button class="btn line sm" data-act="sync-now">今すぐ同期</button><button class="btn text sm'+(S.confirm==='unlink'?' danger':'')+'" data-act="unlink">'+(S.confirm==='unlink'?'本当にやめる（このスマホのデータは残ります）':'PCとつなぐのをやめる')+'</button></div>';
+}
 function renderSettings(){
   let h='<div class="top"><h1>設定</h1></div>';
   // people
-  h+='<div class="panel"><h2>使う人</h2><p class="muted small">PCでは、自分と弟の両方を切り替えて計画をいじれます。それぞれのデータは別々です。</p><ul class="mlist">'+P.list.map(p=>{const k='prof:'+p.id;return '<li><div><strong>'+esc(p.name)+'</strong>'+(p.id===P.active?'　<span class="ok">使用中</span>':'')+(p.code?'<br><span class="muted small">同期コード '+esc(fmtCode(p.code))+'</span>':'')+'</div><div class="row">'+(p.id!==P.active?'<button class="btn line sm" data-act="prof-switch" data-id="'+esc(p.id)+'">切り替える</button>':'')+(p.id!=='default'&&p.id!==P.active?'<button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="prof-del" data-id="'+esc(p.id)+'">'+(S.confirm===k?'本当に外す':'外す')+'</button>':'')+'</div></li>'}).join('')+'</ul>';
-  h+='<form id="prof-form" class="grid2"><label>使う人を追加（名前）<input type="text" id="prof-name" maxlength="20" placeholder="例：弟"></label><div class="row" style="align-self:end"><button class="btn line sm" type="submit">追加する</button><span id="prof-msg"></span></div></form>';
+  h+='<div class="panel"><h2>使う人</h2><p class="muted small">PCでは、自分と弟の両方を切り替えて計画をいじれます。それぞれのデータは別々です。</p><ul class="mlist">'+P.list.map(p=>{const k='prof:'+p.id;return '<li><div><strong>'+esc(p.name)+'</strong>'+(p.id===P.active?'　<span class="ok">使用中</span>':'')+(p.srv&&(IS_PC||LINK.key)?'<br><span class="muted small">PCと同期</span>':'')+'</div><div class="row">'+(p.id!==P.active?'<button class="btn line sm" data-act="prof-switch" data-id="'+esc(p.id)+'">切り替える</button>':'')+(p.id!=='default'&&p.id!==P.active?'<button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="prof-del" data-id="'+esc(p.id)+'">'+(S.confirm===k?'本当に外す':'外す')+'</button>':'')+'</div></li>'}).join('')+'</ul>';
+  h+='<form id="prof-form" class="grid2"><label>使う人を追加（名前）<input type="text" id="prof-name" maxlength="20" placeholder="例：弟"></label><div class="row" style="align-self:end"><button class="btn line sm" type="submit">追加する</button><span id="prof-msg"></span></div></form>'+(IS_PC?'<p class="muted small">ここで追加した人は、PCのサーバーに登録されます。その人のスマホをつなぐと、PCで作った計画がそのスマホに届きます。</p>':'');
   h+='<label>名前を変える<input type="text" id="prof-rename" maxlength="20" value="'+esc(prof().name)+'"></label></div>';
   // sync
-  const code=prof().code;
-  h+='<div class="panel"><h2>同期（PCとスマホ）</h2>';
-  if(!window.FIREBASE_CONFIG){
-    h+='<p class="small">同期はまだ準備中です。Firebaseの設定が終わると、ここで使えるようになります。それまでは、このページの下の「バックアップ」で端末間を移せます。</p>';
-  }else if(!code){
-    h+='<p class="small">同期すると、PCで変えた計画がスマホにすぐ届き、スマホでつけた完了の印もPCで見られます。</p><button class="btn" data-act="sync-new">この端末で同期を始める（コードを作る）</button><label>ほかの端末で作ったコードを入力<input type="text" id="sync-code" placeholder="例：ABCD-EFGH-JKLM-NPQR" autocapitalize="characters" autocomplete="off"></label><div class="row"><button class="btn line" data-act="sync-join">このコードで同期する</button><span id="sync-msg"></span></div><p class="muted small">コードを知っている人は、このデータを見たり変えたりできます。家族以外には教えないでください。</p>';
-  }else{
-    const st=syncInfo.state==='ok'?'<span class="ok">同期中'+(syncInfo.at?'（'+new Date(syncInfo.at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'）':'')+'</span>':syncInfo.state==='connecting'?'<span class="muted">接続しています</span>':syncInfo.state==='error'?'<span class="err">同期できませんでした（'+esc(syncInfo.msg)+'）。通信を確認してください。</span>':'';
-    h+='<p class="small">'+st+'</p><p class="muted small">ほかの端末では「設定」→「同期」で、このコードを入力します。</p><p class="code">'+esc(fmtCode(code))+'</p><div class="row"><button class="btn line sm" data-act="sync-copy">コードをコピー</button><button class="btn text sm'+(S.confirm==='sync-off'?' danger':'')+'" data-act="sync-off">'+(S.confirm==='sync-off'?'本当にやめる（この端末のデータは残ります）':'この端末の同期をやめる')+'</button><span id="sync-msg"></span></div><p class="muted small">コードを知っている人は、このデータを見たり変えたりできます。家族以外には教えないでください。</p>';
-  }
-  h+='</div>';
+  h+='<div class="panel"><h2>'+(IS_PC?'このPC（同期サーバー）':'PCとつなぐ')+'</h2>'+renderSyncPanel()+'</div>';
   // scores
   h+='<div class="panel"><h2>テストの点数</h2><form id="score-form" class="grid2"><label>日付<input type="date" id="sc-date" value="'+today()+'"></label><label>科目<select id="sc-subject">'+SUBJECTS.filter(s=>s!=='全科目').map(s=>'<option>'+s+'</option>').join('')+'</select></label><label>テスト名<input type="text" id="sc-title" maxlength="40" placeholder="例：前回の期末"></label><label>点数<input type="number" id="sc-score" min="0" step="0.5"></label><label>満点<input type="number" id="sc-max" min="1" step="0.5" value="100"></label><div class="row"><button class="btn line" type="submit">記録する</button><span id="sc-msg"></span></div></form>'+(D.scores.length?'<ul class="mlist">'+D.scores.slice().reverse().map(s=>{const k='score:'+s.id;return '<li><div>'+esc(md(s.date))+'　'+esc(s.subject)+'　'+esc(s.title)+'　<strong>'+esc(s.score)+' / '+esc(s.max)+'</strong></div><button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="del-score" data-id="'+esc(s.id)+'">'+(S.confirm===k?'本当に削除':'削除')+'</button></li>'}).join('')+'</ul>':'')+'</div>';
   // backup
@@ -592,14 +658,26 @@ function applyPreset(p){
 function switchProfile(id){
   clearTimeout(S.saveT);if(S.saveT){persist()}
   P.active=id;saveProfiles();D=load();S.sched=null;S.run=null;S.focus=null;S.timer=null;S.filter='all';S.manageDeck=null;
-  syncConnect();show(D.setup?'today':'welcome');
+  syncStart();show(D.setup?'today':'welcome');
 }
-async function joinCode(raw,msgId){
-  const code=cleanCode(raw);
-  if(code.length<16){setMsg(msgId,'コードは16文字です。もう一度確かめてください。');return false}
-  prof().code=code;saveProfiles();D.setup=true;saveLocal();
-  await syncConnect();
-  return true;
+async function pairWith(raw){
+  const code=String(raw||'').replace(/\D/g,'');
+  if(code.length!==6){setMsg('pair-msg','PCに出ている6桁の番号を入れてください。');return}
+  setMsg('pair-msg','つないでいます…',true);
+  try{
+    const base=await discover();
+    const r=await fetchT(base+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,device:navigator.platform||''})},10000);
+    const j=await r.json().catch(()=>({}));
+    if(r.status!==200||!j.key){setMsg('pair-msg','番号が違うか、期限が切れています。PCでもう一度番号を出してください。');return}
+    LINK.key=j.key;saveLink();S.pairProfiles=j.profiles||[];
+    if(S.pairProfiles.length===1)return pickPerson(S.pairProfiles[0].id,S.pairProfiles[0].name);
+    renderSettings();
+  }catch(e){setMsg('pair-msg','PCにつながりません。PCが起動していて、暗記帳サーバーが動いているか確かめてください。')}
+}
+function pickPerson(id,name){
+  prof().srv=id;if(name)prof().name=name;saveProfiles();S.pairProfiles=null;
+  if(!D.setup)D.setup=true;saveLocal();syncStart();
+  if(S.screen==='settings')renderSettings();
 }
 
 /* ---------- events ---------- */
@@ -634,7 +712,6 @@ document.addEventListener('click',async e=>{
     case 'cram-missed':{if(!S.run)return;const keys=S.run.missed,bk=S.run.back;startCram(allCards().filter(c=>keys.has(c.key)));if(S.run)S.run.back=bk;return}
     case 'setup-preset':{const p=PRESETS[Number(b.dataset.i)];if(p){applyPreset(p);show('today')}return}
     case 'setup-blank':D.setup=true;D.settings.updatedAt=Date.now();persist();return show('planner');
-    case 'join-welcome':{if(await joinCode(($('w-code')||{}).value,'w-msg'))show('today');return}
     case 'pl-add-subj':return structural(st=>st.subjects.push({id:'s'+newId(),name:'',weight:1,cycles:3,testDate:'',items:[{id:'i'+newId(),label:'',min:30,decks:[]}]}));
     case 'pl-del-subj':{const k='subj:'+si;if(S.confirm!==k){S.confirm=k;return renderPlanner()}S.confirm=null;return structural(st=>st.subjects.splice(si,1))}
     case 'pl-add-item':return structural(st=>st.subjects[si].items.push({id:'i'+newId(),label:'',min:30,decks:[]}));
@@ -649,11 +726,15 @@ document.addEventListener('click',async e=>{
       structural(st=>{const s=st.subjects[si];s.items=s.items.filter(it=>String(it.label||'').trim()).concat(rows)});setMsg('gen-msg-'+si,rows.length+'行作りました。',true);return;
     }
     case 'prof-switch':return switchProfile(b.dataset.id);
-    case 'prof-del':{const k='prof:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderSettings()}S.confirm=null;P.list=P.list.filter(p=>p.id!==b.dataset.id);saveProfiles();try{localStorage.removeItem(dataKey(b.dataset.id))}catch(x){}return renderSettings()}
-    case 'sync-new':{if(!window.FIREBASE_CONFIG)return;prof().code=rid(16);saveProfiles();await syncConnect();return renderSettings()}
-    case 'sync-join':{if(await joinCode(($('sync-code')||{}).value,'sync-msg'))renderSettings();return}
-    case 'sync-copy':return copyText(fmtCode(prof().code),()=>setMsg('sync-msg','コピーしました。',true),()=>setMsg('sync-msg','コードを見て入力してください。'));
-    case 'sync-off':{if(S.confirm!=='sync-off'){S.confirm='sync-off';return renderSettings()}S.confirm=null;prof().code='';saveProfiles();syncClose();syncInfo.state='off';return renderSettings()}
+    case 'prof-del':{const k='prof:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderSettings()}S.confirm=null;const gone=P.list.find(p=>p.id===b.dataset.id);
+      if(IS_PC&&gone&&gone.srv&&gone.srv!=='me'){try{await api('/api/profiles/'+encodeURIComponent(gone.srv),{method:'POST',body:{delete:true}})}catch(x){}}
+      P.list=P.list.filter(p=>p.id!==b.dataset.id);saveProfiles();try{localStorage.removeItem(dataKey(b.dataset.id))}catch(x){}return renderSettings()}
+    case 'pc-code':{try{const r=await api('/api/pair-code');if(r.status===200)PAIR=r.body}catch(x){}return renderSettings()}
+    case 'pair-go':return pairWith(($('pair-code')||{}).value);
+    case 'pair-pick':return pickPerson(b.dataset.id,b.dataset.name);
+    case 'pair-list':{try{const r=await api('/api/profiles');if(r.status===200)S.pairProfiles=r.body.profiles;else if(r.status===401)unpaired()}catch(x){setMsg('pair-msg','PCにつながりません。')}return renderSettings()}
+    case 'sync-now':syncInfo.state='connecting';renderSettings();await syncRun(pullNow);await syncRun(pushNow);return renderSettings();
+    case 'unlink':{if(S.confirm!=='unlink'){S.confirm='unlink';return renderSettings()}S.confirm=null;LINK={};saveLink();P.list.forEach(p=>{delete p.srv});saveProfiles();syncStart();return renderSettings()}
     case 'del-score':{const k='score:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderSettings()}S.confirm=null;D.scores=D.scores.filter(s=>s.id!==b.dataset.id);persist();return renderSettings()}
     case 'lib-add':installLib(b.dataset.id);persist();return renderLibrary();
     case 'lib-remove':{const k='lib:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderLibrary()}S.confirm=null;removeDeck(b.dataset.id);return renderLibrary()}
@@ -670,7 +751,7 @@ document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.k
 document.addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset&&t.dataset.k){applyField(t);if(t.dataset.f==='holidays'||t.dataset.f==='offDays'){clearTimeout(S.saveT);persist();renderPlanner()}return}
-  if(t.id==='prof-rename'){const v=t.value.trim();if(v){prof().name=v;saveProfiles()}return}
+  if(t.id==='prof-rename'){const v=t.value.trim();if(v){prof().name=v;saveProfiles();if(IS_PC&&prof().srv)api('/api/profiles/'+encodeURIComponent(prof().srv),{method:'POST',body:{name:v}}).catch(()=>{})}return}
   if(t.id==='m-deck'){S.manageDeck=t.value;S.confirm=null;return renderManage()}
   if(t.id==='imp-file'&&t.files&&t.files[0]){const fr=new FileReader();fr.onload=()=>askImport(String(fr.result||''));fr.readAsText(t.files[0]);t.value=''}
 });
@@ -709,16 +790,24 @@ document.addEventListener('submit',e=>{
   }
   if(id==='prof-form'){
     const name=$('prof-name').value.trim();if(!name){setMsg('prof-msg','名前を書いてください。');return}
-    const pid='p'+newId();P.list.push({id:pid,name,code:''});saveProfiles();switchProfile(pid);
+    if(IS_PC){
+      api('/api/profiles',{method:'POST',body:{name}}).then(r=>{
+        if(r.status!==200){setMsg('prof-msg','サーバーに追加できませんでした。');return}
+        mirrorProfiles(r.body.profiles);const p=P.list.find(x=>x.srv===r.body.id);if(p)switchProfile(p.id);
+      }).catch(()=>setMsg('prof-msg','サーバーに追加できませんでした。'));
+      return;
+    }
+    const pid='p'+newId();P.list.push({id:pid,name});saveProfiles();switchProfile(pid);
   }
 });
 
 /* ---------- start ---------- */
 $('nd-subject').innerHTML=SUBJECTS.filter(s=>s!=='全科目').map(s=>'<option>'+s+'</option>').join('');
 S.screen=D.setup?'today':'welcome';
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){S.sched=null;if(['today','plan','decks'].includes(S.screen))render()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){S.sched=null;if(['today','plan','decks'].includes(S.screen))render();syncRun(pullNow)}});
 render();
-syncConnect();
+syncStart();
+if(IS_PC){pcRefresh();setInterval(()=>{if(!document.hidden&&S.screen==='settings')pcRefresh()},15000)}
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})})}
 window.__speedAnki={schedule:()=>schedule(),data:()=>D};
 })();
