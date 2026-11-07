@@ -226,9 +226,13 @@ function schedule(){
   const placed={};
   const prevId=u=>u.cycle>1&&!u.final?u.subjectId+':'+u.item+':c'+(u.cycle-1):null;
   const maxDl=Object.values(subj).reduce((m,s)=>s.dl>m?s.dl:m,t0);
+  /* spread the work evenly: only fill each day up to (work left ÷ time left), with a little headroom */
+  let totalCap=0;for(let x=t0;x<=maxDl;x=shift(x,1))totalCap+=capacity(x);
+  const ratio=Math.min(1,(res.totalMin*1.15)/(totalCap||1));
+  const eff=x=>{const c=capacity(x);return c?Math.min(c,Math.max(40,Math.round(c*ratio))):0};
   let d=t0,guard=0;
   while(queue.length&&guard<500){
-    const list=res.days[d]=res.days[d]||[],full=capacity(d);
+    const list=res.days[d]=res.days[d]||[],full=d>maxDl?capacity(d):eff(d);
     let cap=full-list.reduce((a,u)=>a+(u.min||0),0);const startLen=list.length;
     /* pass 0: only work whose window is open. pass 1: if the day is still under 60% full, pull work forward from the next 5 days. */
     for(let pass=0;pass<2;pass++){
