@@ -256,7 +256,7 @@ function unitsAll(){
       for(let c=1;c<=cyc;c++){
         const f=c===1?1:(deck?0.7:(c===2?0.5:0.35));
         const suffix=cyc===1?'':(c===1?'（1周目）':deck?'（'+c+'周目）':'の×だけ（'+c+'周目）');
-        out.push({id:s.id+':'+it.id+':c'+c,subjectId:s.id,subject:s.name||'その他',item:it.id,ii,cycle:c,cycles:cyc,title:(it.label||'やること')+suffix,min:Math.max(5,Math.round(base*f/5)*5),decks:it.decks||[],weight:w});
+        out.push({id:s.id+':'+it.id+':c'+c,subjectId:s.id,subject:s.name||'その他',item:it.id,ii,cycle:c,cycles:cyc,title:(it.label||'やること')+suffix,min:Math.max(5,Math.round(base*f/5)*5),decks:it.decks||[],early:!!it.early,weight:w});
       }
     });
     if((s.items||[]).length&&Number(s.finalMin)!==0)out.push({id:s.id+':final',subjectId:s.id,subject:s.name||'その他',item:'final',ii:999,cycle:99,cycles:cyc,title:'テスト前の総見直し（×が残った問題と要点）',min:Number(s.finalMin)||30,decks:[],weight:w,final:true});
@@ -283,7 +283,7 @@ function schedule(){
   const subj={};subjectsOf().forEach(s=>{const dl=deadlineOf(s);subj[s.id]={dl,span:Math.max(1,diffDays(t0,dl))}});
   /* each cycle has a window: it may start at `start` and should be done by `phase` (both as fractions of the days left) */
   const phase=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return s.dl;const n=u.cycles;const f=n===1?0.85:Math.min(0.95,u.cycle/n);return shift(t0,Math.floor(s.span*f))};
-  const startOf=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return shift(s.dl,-3);const n=u.cycles;let f=u.cycle===1?0:Math.min(0.85,(u.cycle-1)/n*1.1);if((u.decks||[]).length)f=u.cycle===1?Math.max(f,0.3):Math.min(0.9,f+0.05);return shift(t0,Math.floor(s.span*f))};
+  const startOf=u=>{const s=subj[u.subjectId];if(!s)return t0;if(u.final)return shift(s.dl,-3);const n=u.cycles;let f=u.cycle===1?0:Math.min(0.85,(u.cycle-1)/n*1.1);if((u.decks||[]).length&&!u.early)f=u.cycle===1?Math.max(f,0.3):Math.min(0.9,f+0.05);return shift(t0,Math.floor(s.span*f))};
   const rr={},groups={};
   pending.filter(u=>!u.extra).forEach(u=>{(groups[u.cycle]=groups[u.cycle]||{});(groups[u.cycle][u.subjectId]=groups[u.cycle][u.subjectId]||[]).push(u)});
   Object.keys(groups).forEach(k=>{
@@ -598,14 +598,13 @@ function renderStudy(){
   }
   const total=r.done+r.queue.length,p=total?Math.round(r.done/total*100):0,s=stateOf(c.key);
   let h='<div class="bar"><button class="btn text" data-act="run-back">終える</button><span class="small muted">'+(r.mode==='srs'?'学習':'全部回す')+'・残り'+r.queue.length+'枚</span><button class="btn text" data-act="undo"'+(r.history.length?'':' disabled')+'>1つ戻す</button></div><div class="prog"><i style="width:'+p+'%"></i></div>';
-  h+='<div class="cardwrap"><div class="wcard"><div class="meta"><span>'+esc(c.subject)+(c.category?'・'+esc(c.category):'')+'</span><span>'+esc(c.deckTitle)+'</span>'+(r.mode==='srs'&&!s?'<span class="tag">新しいカード</span>':'')+'</div><p class="front">'+esc(c.front)+'</p>';
+  h+='<div class="cardwrap"><div class="wcard"><div class="meta"><span>'+esc(c.category||'')+'</span>'+(r.mode==='srs'&&!s?'<span class="tag">はじめて</span>':'')+'</div><p class="front">'+esc(c.front)+'</p>';
   if(c.options)h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.pick===i?' wrong':'')):'';return '<button class="opt'+cls+'" data-pick="'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
-  if(r.shown){const head=c.options?(r.pick===c.answer?'<b>○ 正解</b>　':'<b style="color:var(--again)">× 正解は'+MARK[c.answer]+'</b>　'):'';h+='<div class="answer">'+head+esc(c.back)+'</div>'}
-  else if(!c.options)h+='<button class="cover" data-act="reveal">タップで答えを見る</button>';
+  if(r.shown){const head=c.options?(r.pick===c.answer?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん。正解は '+MARK[c.answer]+'</b><br>'):'';h+='<div class="answer">'+head+esc(c.back)+'</div>'}
   h+='</div></div><div class="controls">';
-  if(!r.shown)h+=c.options?'<p class="hint">選択肢をタップ（1〜'+c.options.length+'キー）</p>':'<button class="btn big" data-act="reveal">答えを見る</button>';
-  else if(r.mode==='srs'){const rec=recommended();h+='<div class="rate">'+[[1,'もう一度'],[2,'難しい'],[3,'正解'],[4,'簡単']].map(([v,l])=>'<button class="r'+v+(v===rec?' rec':'')+'" data-rate="'+v+'">'+l+'<small>'+ivlLabel(schedule1(s,v))+'</small></button>').join('')+'</div>'}
-  else{const ok=!c.options||r.pick===c.answer;h+='<div class="rate two"><button class="r1'+(ok?'':' rec')+'" data-cram="0">× まだ<small>あとでもう一度</small></button><button class="r3'+(ok?' rec':'')+'" data-cram="1">○ わかった<small>次へ</small></button></div>'}
+  if(!r.shown)h+=c.options?'<p class="hint">正しいと思うものを押す</p>':'<p class="hint">頭の中で答えてから押す</p><button class="btn big" data-act="reveal">答えを見る</button>';
+  else if(r.mode==='srs'){if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-rate="'+(ok?3:1)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else h+='<div class="rate two"><button class="r1" data-rate="1">× まちがえた<small>あとでもう一度</small></button><button class="r3 rec" data-rate="3">○ できた<small>次へ</small></button></div>'}
+  else if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-cram="'+(ok?1:0)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else{h+='<div class="rate two"><button class="r1" data-cram="0">× まちがえた<small>あとでもう一度</small></button><button class="r3 rec" data-cram="1">○ できた<small>次へ</small></button></div>'}
   el.innerHTML=h+'</div>';
 }
 function renderManage(){

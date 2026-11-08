@@ -1,16 +1,16 @@
 /* Starting setups. The app builds the day-by-day plan from these on its own. */
 window.PRESETS=[{
   id:'2026-12-zen-ronpyo',
-  version:2,
+  version:4,
   title:'12月期末・全科目（論表重点）で始める',
   note:'12月2日からの期末テスト用。論理・表現は範囲と暗記カード139枚まで入っています。ほかの科目はおおまかな範囲なので、範囲表が出たら「計画の設定」で直してください。',
-  decks:['ronpyo-points','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
+  decks:['ronpyo-points','ronpyo-374','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
   settings:{
     examDate:'2026-12-02',weekdayMin:120,weekendMin:240,ankiMin:20,newLimit:40,
     holidays:['2026-11-23'],offDays:[],
     subjects:[
       {id:'ronpyo',name:'論理・表現',weight:3,cycles:3,testDate:'',items:[
-        {id:'b374',label:'本冊 374〜402（比較の前半）：解説を読んで解き、×を付ける',min:60,decks:[]},
+        {id:'b374',label:'比較の前半の問題を最後まで解く（本冊374〜402の文法）',min:30,decks:['ronpyo-374'],early:true},
         {id:'b403',label:'本冊 403〜430（比較の後半）',min:50,decks:[]},
         {id:'b431',label:'本冊 431〜447（主語と動詞の一致）',min:35,decks:[]},
         {id:'b448',label:'本冊 448〜474（疑問文）',min:55,decks:[]},
@@ -55,9 +55,11 @@ window.PRESETS=[{
     dayMin:{'2026-11-08':120},
     onlyDay:{'2026-11-08':'ronpyo'},
     extras:[
-      {id:'d1108a',date:'2026-11-08',subject:'論理・表現',title:'文法ポイントのカードを最後まで回す（比較・一致・疑問文）',min:25,decks:['ronpyo-points']},
-      {id:'d1108b',date:'2026-11-08',subject:'論理・表現',title:'比較の4択問題を最後まで回す（間違えたら解説を読む）',min:15,decks:['ronpyo-a1']},
-      {id:'d1108c',date:'2026-11-08',subject:'論理・表現',title:'本冊 374〜402 で×を付けた問題を、答えを隠して解き直す',min:20,last:true}
+      {id:'d1108a',date:'2026-11-08',subject:'論理・表現',title:'文法ポイントのカードを最後まで回す',min:25,decks:['ronpyo-points']},
+      {id:'d1108b',date:'2026-11-08',subject:'論理・表現',title:'比較の4択問題を最後まで解く',min:15,decks:['ronpyo-a1']},
+      {id:'d1108d',date:'2026-11-08',subject:'論理・表現',title:'比較の前半の問題をもう一度（2周目）',min:20,decks:['ronpyo-374'],last:true},
+      {id:'d1108e',date:'2026-11-08',subject:'論理・表現',title:'並べかえ問題を最後まで解く',min:15,decks:['ronpyo-b'],last:true},
+      {id:'d1108f',date:'2026-11-08',subject:'論理・表現',title:'書きかえと間違い探しの問題を最後まで解く',min:15,decks:['ronpyo-cd'],last:true}
     ]
   }
 }];
