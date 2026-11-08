@@ -205,7 +205,8 @@ function allCards(){
   const out=[];
   D.decks.slice().sort((a,b)=>(a.order||0)-(b.order||0)).forEach(d=>(d.cards||[]).forEach((c,i)=>out.push({
     key:d.id+':'+(c.id||i),deckId:d.id,deckTitle:d.title||'',subject:c.subject||d.subject||'',category:c.category||'',
-    front:c.front||'',back:c.back||'',options:Array.isArray(c.options)&&c.options.length?c.options:null,answer:typeof c.answer==='number'?c.answer:-1})));
+    front:c.front||'',back:c.back||'',options:Array.isArray(c.options)&&c.options.length?c.options:null,answer:typeof c.answer==='number'?c.answer:-1,
+    type:c.type||'',words:c.words||null,extra:c.extra||[],answers:c.answers||null,fix:c.fix||null})));
   return out;
 }
 const visible=()=>allCards().filter(c=>S.filter==='all'||c.subject===S.filter);
@@ -261,7 +262,7 @@ function unitsAll(){
     });
     if((s.items||[]).length&&Number(s.finalMin)!==0)out.push({id:s.id+':final',subjectId:s.id,subject:s.name||'その他',item:'final',ii:999,cycle:99,cycles:cyc,title:(s.finalDecks||[]).length?'テスト前の総見直し（テストと同じ形の問題を全部）':'テスト前の総見直し（×が残った問題と要点）',min:Number(s.finalMin)||30,decks:s.finalDecks||[],weight:w,final:true});
   });
-  (D.settings.extras||[]).forEach(x=>{if(x&&x.title)out.push({id:'x:'+x.id,subjectId:'_x',subject:x.subject||'全科目',title:x.title,min:Number(x.min)||0,decks:x.decks||[],fixedDate:isDate(x.date)?x.date:today(),extra:true,last:!!x.last,cycle:0,weight:1})});
+  (D.settings.extras||[]).forEach(x=>{if(x&&x.title)out.push({id:'x:'+x.id,subjectId:'_x',subject:x.subject||'全科目',title:x.title,min:Number(x.min)||0,decks:x.decks||[],mock:x.mock||null,fixedDate:isDate(x.date)?x.date:today(),extra:true,last:!!x.last,cycle:0,weight:1})});
   return out;
 }
 function capacity(d){
@@ -341,15 +342,39 @@ function startSrs(cards,taskId){
   S.run={mode:'srs',queue:q,total:q.length,shown:false,pick:null,done:0,right:0,history:[],missed:new Set(),taskId:taskId||null,back:S.screen};
   show('study');return true;
 }
-function startCram(cards,taskId){
+/* A unit's cards. A mock unit picks questions by test part (A 4択, B 並べ替え, C 書きかえ, D 誤り指摘) in the real test's counts and order. */
+const partOf=c=>c.type==='order'?'B':c.type==='write'?'C':c.type==='fix'?'D':(c.options&&/^A/.test(c.category)?'A':'');
+function unitCards(u){
+  const ids=resolveDecks(u.decks).map(d=>d.id),cards=allCards().filter(c=>ids.includes(c.deckId));
+  if(!u.mock)return cards;
+  const out=[];['A','B','C','D'].forEach(k=>{const n=Number(u.mock[k])||0;out.push(...shuffle(cards.filter(c=>partOf(c)===k)).slice(0,n))});
+  return out;
+}
+function startUnit(u){const cards=unitCards(u);if(cards.length)return startCram(cards,u.id,!!u.mock);S.focus=u.id;show('focus')}
+function startCram(cards,taskId,ordered){
   if(!cards.length)return;
-  S.run={mode:'cram',queue:shuffle(cards),total:cards.length,shown:false,pick:null,done:0,right:0,history:[],missed:new Set(),taskId:taskId||null,back:S.screen};
+  S.run={mode:'cram',queue:ordered?cards.slice():shuffle(cards),total:cards.length,shown:false,pick:null,done:0,right:0,history:[],missed:new Set(),taskId:taskId||null,back:S.screen};
   show('study');
 }
 function finishRun(){const r=S.run;if(r&&r.taskId&&!r.queue.length)setDone(r.taskId,true)}
+/* The app always decides right or wrong. order = tap words in order (test part B), write = type into blanks (part C), fix = pick the wrong part and type the fix (part D). */
+const normAns=x=>String(x||'').toLowerCase().replace(/[’']/g,"'").replace(/[.,!?]+$/,'').replace(/\s+/g,' ').trim();
+const matchAns=(v,alts)=>(Array.isArray(alts)?alts:[alts]).some(a=>normAns(a)===normAns(v));
+function okOf(c){const r=S.run;if(c.type==='order'||c.type==='write'||c.type==='fix')return !!r.ok;return !c.options||r.pick===c.answer}
+function orderTap(pi){const r=S.run,c=r&&r.queue[0];if(!c||r.shown)return;r.sel=r.sel||[];if(!r.sel.includes(pi))r.sel.push(pi);
+  if(r.sel.length===c.words.length){r.ok=r.sel.map(i=>r.pool[i]).join(' ')===c.words.join(' ');r.shown=true}renderStudy()}
+function orderUntap(k){const r=S.run;if(!r||r.shown)return;r.sel.splice(k,1);renderStudy()}
+function readInputs(){const r=S.run;r.inputs=[...document.querySelectorAll('#study [data-w]')].map(x=>x.value)}
+function writeCheck(){const r=S.run,c=r&&r.queue[0];if(!c||r.shown)return;readInputs();
+  if(r.inputs.some(v=>!v.trim())){const m=$('w-msg');if(m)m.textContent='全部の（　）に書いてから押してください。';return}
+  r.ok=c.answers.every((alts,i)=>matchAns(r.inputs[i],alts));r.shown=true;renderStudy()}
+function fixSelect(i){const r=S.run;if(!r||r.shown)return;readInputs();r.fsel=i;renderStudy()}
+function fixCheck(){const r=S.run,c=r&&r.queue[0];if(!c||r.shown)return;readInputs();
+  if(r.fsel==null||!(r.inputs[0]||'').trim()){const m=$('w-msg');if(m)m.textContent='番号を選んで、正しい形を書いてから押してください。';return}
+  r.ok=r.fsel===c.answer&&matchAns(r.inputs[0],c.fix);r.shown=true;renderStudy()}
 function reveal(){const r=S.run;if(r&&r.queue.length&&!r.shown){r.shown=true;renderStudy()}}
 function pick(i){const r=S.run;if(!r||r.shown)return;r.pick=i;r.shown=true;renderStudy()}
-function recommended(){const r=S.run,c=r.queue[0];if(!c)return 3;return c.options&&r.pick!=null?(r.pick===c.answer?3:1):3}
+function recommended(){const r=S.run,c=r.queue[0];if(!c)return 3;return okOf(c)?3:1}
 function rate(v){
   const r=S.run;if(!r||!r.shown||!r.queue.length)return;
   const c=r.queue[0],prev=stateOf(c.key),s=schedule1(prev,v),t=today(),lgPrev=logOf(t),ncPrev=newToday();
@@ -359,7 +384,7 @@ function rate(v){
   if(!prev)setNew(t,ncPrev+1);
   if(v===1)r.missed.add(c.key);else r.right++;
   if(s.due-Date.now()<30*60e3)r.queue.splice(Math.min(3,r.queue.length),0,c);
-  r.done++;r.shown=false;r.pick=null;if(!r.queue.length)finishRun();persist();renderStudy();
+  r.done++;r.shown=false;r.pick=null;r.sel=null;r.pool=null;r.ok=null;r.inputs=null;r.fsel=null;if(!r.queue.length)finishRun();persist();renderStudy();
 }
 function cram(ok){
   const r=S.run;if(!r||!r.shown||!r.queue.length)return;
@@ -367,12 +392,12 @@ function cram(ok){
   r.history.push({key:c.key,queue:r.queue.slice(),lgPrev,done:r.done,right:r.right,missedHad:r.missed.has(c.key)});
   r.queue.shift();
   if(ok){if(!r.missed.has(c.key))r.right++}else{r.missed.add(c.key);r.queue.splice(Math.min(4,r.queue.length),0,c)}
-  r.done++;r.shown=false;r.pick=null;setLog(t,Object.assign({},lgPrev,{cram:lgPrev.cram+1}));if(!r.queue.length)finishRun();persist();renderStudy();
+  r.done++;r.shown=false;r.pick=null;r.sel=null;r.pool=null;r.ok=null;r.inputs=null;r.fsel=null;setLog(t,Object.assign({},lgPrev,{cram:lgPrev.cram+1}));if(!r.queue.length)finishRun();persist();renderStudy();
 }
 function undo(){
   const r=S.run;if(!r||!r.history.length)return;
   const h=r.history.pop(),t=today();
-  r.queue=h.queue;r.done=h.done;r.right=h.right;if(!h.missedHad)r.missed.delete(h.key);r.shown=false;r.pick=null;
+  r.queue=h.queue;r.done=h.done;r.right=h.right;if(!h.missedHad)r.missed.delete(h.key);r.shown=false;r.pick=null;r.sel=null;r.pool=null;r.ok=null;r.inputs=null;r.fsel=null;
   setLog(t,h.lgPrev);
   if(r.mode==='srs'){setState(h.key,h.prev?h.prev:{reset:Date.now(),last:Date.now()});setNew(t,h.ncPrev)}
   persist();renderStudy();
@@ -421,7 +446,7 @@ function installTip(){
 function countdown(){const left=daysLeft();return left==null?'':'<p class="count">'+(left>0?'テストまで あと<b>'+left+'</b>日':left===0?'今日から本番':'テスト期間')+'</p>'}
 function taskRow(u,prefix){
   const d=isDone(u.id),dk=resolveDecks(u.decks);
-  const bits=[];if(u.min)bits.push('目安'+u.min+'分');if(dk.length)bits.push('カード'+dk.reduce((a,x)=>a+(x.cards||[]).length,0)+'枚');if(u.late)bits.push('締め切りを過ぎています');
+  const bits=[];if(u.min)bits.push('目安'+u.min+'分');if(dk.length)bits.push(u.mock?'本番と同じ形 '+['A','B','C','D'].reduce((a,k)=>a+(Number(u.mock[k])||0),0)+'問':'問題'+dk.reduce((a,x)=>a+(x.cards||[]).length,0)+'問');if(u.late)bits.push('締め切りを過ぎています');
   return '<li class="task'+(d?' done':'')+(u.late?' late':'')+'"><button class="check" data-act="toggle" data-id="'+esc(u.id)+'" aria-label="'+(d?'完了を取り消す':'完了にする')+'" aria-pressed="'+d+'">'+(d?'✓':'')+'</button><button class="body" data-act="open" data-id="'+esc(u.id)+'"><strong>'+(prefix?esc(u.subject)+'　':'')+esc(u.title)+'</strong>'+(bits.length?'<span>'+esc(bits.join('・'))+'</span>':'')+'</button><span class="go">'+(d?'':(dk.length?'回す':'始める'))+'</span></li>';
 }
 function todayOrder(list){const g=groupBySubject(list);const out=[];g.forEach(x=>x.items.slice().sort((a,b)=>(a.last?1:0)-(b.last?1:0)).forEach(u=>out.push(u)));return out}
@@ -599,12 +624,31 @@ function renderStudy(){
   const total=r.done+r.queue.length,p=total?Math.round(r.done/total*100):0,s=stateOf(c.key);
   let h='<div class="bar"><button class="btn text" data-act="run-back">終える</button><span class="small muted">'+(r.mode==='srs'?'学習':'全部回す')+'・残り'+r.queue.length+'枚</span><button class="btn text" data-act="undo"'+(r.history.length?'':' disabled')+'>1つ戻す</button></div><div class="prog"><i style="width:'+p+'%"></i></div>';
   h+='<div class="cardwrap"><div class="wcard"><div class="meta"><span>'+esc(c.category||'')+'</span>'+(r.mode==='srs'&&!s?'<span class="tag">はじめて</span>':'')+'</div><p class="front">'+esc(c.front)+'</p>';
-  if(c.options)h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.pick===i?' wrong':'')):'';return '<button class="opt'+cls+'" data-pick="'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
-  if(r.shown){const head=c.options?(r.pick===c.answer?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん。正解は '+MARK[c.answer]+'</b><br>'):'';h+='<div class="answer">'+head+esc(c.back)+'</div>'}
+  if(c.type==='order'){
+    if(!r.pool)r.pool=shuffle(c.words.concat(c.extra||[]));const sel=r.sel||[];
+    h+='<div class="olist" aria-label="ならべた言葉">'+(sel.length?sel.map((pi,k)=>'<button class="wchip on" data-osel="'+k+'"'+(r.shown?' disabled':'')+'>'+esc(r.pool[pi])+'</button>').join(''):'<span class="muted small">下の言葉を、正しい順に押す（まちがえたら上の言葉を押すと戻る）</span>')+'</div>';
+    if(!r.shown)h+='<div class="opool">'+r.pool.map((w,pi)=>sel.includes(pi)?'':'<button class="wchip" data-opick="'+pi+'">'+esc(w)+'</button>').join('')+'</div>';
+  }
+  if(c.type==='write'){
+    const v=r.inputs||[];
+    h+='<div class="wins">'+c.answers.map((a,i)=>'<label><span>'+(c.answers.length>1?MARK[i]:'答え')+'</span><input type="text" data-w="'+i+'" value="'+esc(v[i]||'')+'" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"'+(r.shown?' disabled':'')+'></label>').join('')+'</div>';
+  }
+  if(c.type==='fix'){
+    const v=r.inputs||[];
+    h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.fsel===i?' wrong':'')):(r.fsel===i?' sel':'');return '<button class="opt'+cls+'" data-fsel="'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
+    h+='<div class="wins"><label><span>正しい形</span><input type="text" data-w="0" value="'+esc(v[0]||'')+'" placeholder="選んだところを正しく書く" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"'+(r.shown?' disabled':'')+'></label></div>';
+  }
+  if(c.options&&c.type!=='fix')h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.pick===i?' wrong':'')):'';return '<button class="opt'+cls+'" data-pick="'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
+  if(r.shown){const ok=okOf(c);let head='';
+    if(c.type==='order'){const w=c.words;head=(ok?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん</b><br>あなた：'+esc(r.sel.map(i=>r.pool[i]).join(' '))+'<br>')+'正しい順：'+esc(w.join(' '))+(w.length>=5?'<br>テストの答え方：2番目は <b>'+esc(w[1])+'</b>、5番目は <b>'+esc(w[4])+'</b>':'')+'<br>'}
+    else if(c.type==='write'){head=(ok?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん</b><br>あなた：'+esc((r.inputs||[]).join(' / '))+'<br>')}
+    else if(c.type==='fix'){head=(ok?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん</b><br>あなた：'+(r.fsel!=null?MARK[r.fsel]:'')+' → '+esc((r.inputs||[])[0]||'')+'<br>')}
+    else if(c.options)head=r.pick===c.answer?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん。正解は '+MARK[c.answer]+'</b><br>';
+    h+='<div class="answer">'+head+esc(c.back)+'</div>'}
   h+='</div></div><div class="controls">';
-  if(!r.shown)h+=c.options?'<p class="hint">正しいと思うものを押す</p>':'<button class="btn big" data-act="reveal">答えを見る</button>';
-  else if(r.mode==='srs'){if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-rate="'+(ok?3:1)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else h+='<button class="btn big go" data-rate="3">次へ</button>'}
-  else if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-cram="'+(ok?1:0)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else{h+='<button class="btn big go" data-cram="1">次へ</button>'}
+  if(!r.shown)h+=c.type==='order'?'<p class="hint">全部ならべると、自動で答え合わせします</p>':c.type==='write'?'<p class="hint" id="w-msg"></p><button class="btn big go" data-act="wcheck">答え合わせ</button>':c.type==='fix'?'<p class="hint" id="w-msg"></p><button class="btn big go" data-act="fcheck">答え合わせ</button>':c.options?'<p class="hint">正しいと思うものを押す</p>':'<button class="btn big" data-act="reveal">答えを見る</button>';
+  else if(r.mode==='srs'){if(c.options||c.type){const ok=okOf(c);h+='<button class="btn big go" data-rate="'+(ok?3:1)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else h+='<button class="btn big go" data-rate="3">次へ</button>'}
+  else if(c.options||c.type){const ok=okOf(c);h+='<button class="btn big go" data-cram="'+(ok?1:0)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else{h+='<button class="btn big go" data-cram="1">次へ</button>'}
   el.innerHTML=h+'</div>';
 }
 function renderManage(){
@@ -684,6 +728,9 @@ document.addEventListener('click',async e=>{
   const a=b.dataset.act;
   if(b.dataset.filter){S.filter=b.dataset.filter;return renderDecks()}
   if(b.dataset.pick!==undefined)return pick(Number(b.dataset.pick));
+  if(b.dataset.opick!==undefined)return orderTap(Number(b.dataset.opick));
+  if(b.dataset.osel!==undefined)return orderUntap(Number(b.dataset.osel));
+  if(b.dataset.fsel!==undefined)return fixSelect(Number(b.dataset.fsel));
   if(b.dataset.rate)return rate(Number(b.dataset.rate));
   if(b.dataset.cram!==undefined)return cram(b.dataset.cram==='1');
   if(!a)return;
@@ -696,9 +743,11 @@ document.addEventListener('click',async e=>{
     case 'past':S.showPast=true;return renderPlan();
     case 'toggle':setDone(b.dataset.id,!isDone(b.dataset.id));return render();
     case 'open':S.focus=b.dataset.id;return show('focus');
-    case 'next':{const u=findUnit(b.dataset.id);if(!u)return;const ids=resolveDecks(u.decks).map(d=>d.id);const cards=allCards().filter(c=>ids.includes(c.deckId));if(cards.length)return startCram(cards,u.id);S.focus=u.id;return show('focus')}
+    case 'wcheck':return writeCheck();
+    case 'fcheck':return fixCheck();
+    case 'next':{const u=findUnit(b.dataset.id);if(!u)return;return startUnit(u)}
     case 'review':if(!startSrs(allCards()))show('decks');return;
-    case 'focus-cards':{const u=findUnit(S.focus);if(!u)return;const ids=resolveDecks(u.decks).map(d=>d.id);return startCram(allCards().filter(c=>ids.includes(c.deckId)),u.id)}
+    case 'focus-cards':{const u=findUnit(S.focus);if(!u)return;return startUnit(u)}
     case 'focus-done':setDone(S.focus,true);return show(S.tab);
     case 'focus-undone':setDone(S.focus,false);return renderFocus();
     case 'timer':return toggleTimer();
@@ -755,6 +804,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const tag=((e.target&&e.target.tagName)||'').toLowerCase();
+  if(tag==='input'&&e.key==='Enter'&&S.screen==='study'&&S.run&&S.run.queue[0]){const t=S.run.queue[0].type;if(t==='write'){e.preventDefault();return writeCheck()}if(t==='fix'){e.preventDefault();return fixCheck()}}
   if(tag==='input'||tag==='textarea'||tag==='select')return;
   if(S.screen!=='study'||!S.run)return;
   const r=S.run,c=r.queue[0];
@@ -762,11 +812,11 @@ document.addEventListener('keydown',e=>{
   if(e.key==='z'||e.key==='Z'||e.key==='Backspace'){e.preventDefault();return undo()}
   if(!c)return;
   if(!r.shown){
-    if(c.options&&/^[1-9]$/.test(e.key)&&Number(e.key)<=c.options.length){e.preventDefault();return pick(Number(e.key)-1)}
-    if(!c.options&&(e.key===' '||e.key==='Enter')){e.preventDefault();return reveal()}
+    if(c.options&&!c.type&&/^[1-9]$/.test(e.key)&&Number(e.key)<=c.options.length){e.preventDefault();return pick(Number(e.key)-1)}
+    if(!c.options&&!c.type&&(e.key===' '||e.key==='Enter')){e.preventDefault();return reveal()}
     return;
   }
-  if(e.key===' '||e.key==='Enter'||e.key==='ArrowRight'){e.preventDefault();const ok=!c.options||r.pick===c.answer;return r.mode==='srs'?rate(ok?3:1):cram(ok)}
+  if(e.key===' '||e.key==='Enter'||e.key==='ArrowRight'){e.preventDefault();const ok=okOf(c);return r.mode==='srs'?rate(ok?3:1):cram(ok)}
 });
 document.addEventListener('submit',e=>{
   e.preventDefault();

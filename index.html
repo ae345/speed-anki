@@ -101,6 +101,15 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .cover{all:unset;box-sizing:border-box;cursor:pointer;display:grid;place-items:center;min-height:84px;border-radius:10px;background:var(--sheet);color:var(--sheet-ink);font-weight:700;opacity:.9}
 .answer{border-top:2px dashed var(--rule);padding-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
 .answer b{color:var(--good)}
+.olist{min-height:52px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;border:2px dashed var(--rule);border-radius:12px}
+.opool{display:flex;flex-wrap:wrap;gap:8px}
+.wchip{all:unset;box-sizing:border-box;cursor:pointer;padding:10px 14px;min-height:44px;font-size:17px;border:1.5px solid var(--ink);border-radius:10px;background:var(--card);color:var(--ink)}
+.wchip.on{background:var(--ink);color:var(--card)}
+.wchip:disabled{cursor:default}
+.wins{display:grid;gap:10px}
+.wins label{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;font-weight:700}
+.wins input{font:inherit;font-size:17px;padding:10px 12px;border:1.5px solid var(--ink);border-radius:10px;background:var(--card);color:var(--ink);min-width:0}
+.opt.sel{border-color:var(--easy);background:var(--soft)}
 .controls{padding-block:10px max(14px,env(safe-area-inset-bottom,0px));display:grid;gap:8px;background:var(--desk)}
 .hint{text-align:center;font-size:12px;color:var(--muted)}
 .rate{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
@@ -197,9 +206,9 @@ code{font:13px ui-monospace,Consolas,monospace;background:var(--desk);padding:1p
     <button data-act="tab" data-tab="settings" id="tab-settings"><i>⚙</i>設定</button>
   </nav>
 </div>
-<script src="server-config.js?v=16"></script>
-<script src="library.js?v=16"></script>
-<script src="presets.js?v=16"></script>
-<script src="app.js?v=16"></script>
+<script src="server-config.js?v=17"></script>
+<script src="library.js?v=17"></script>
+<script src="presets.js?v=17"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 /* Starting setups. The app builds the day-by-day plan from these on its own. */
 window.PRESETS=[{
   id:'2026-12-zen-ronpyo',
-  version:5,
+  version:6,
   title:'12月期末・全科目（論表重点）で始める',
   note:'12月2日からの期末テスト用。論理・表現は全部アプリの問題で勉強できます。ほかの科目はおおまかな範囲なので、範囲表が出たら「計画の設定」で直してください。',
   decks:['ronpyo-points','ronpyo-374','ronpyo-403','ronpyo-431','ronpyo-448','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
@@ -55,6 +55,8 @@ window.PRESETS=[{
     dayMin:{'2026-11-08':120},
     onlyDay:{'2026-11-08':'ronpyo'},
     extras:[
+      {id:'mock1124',date:'2026-11-24',subject:'論理・表現',title:'本番と同じ形の予想テスト（1回目）',min:60,decks:['ronpyo-374','ronpyo-403','ronpyo-431','ronpyo-448','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],mock:{A:60,B:20,C:8,D:2}},
+      {id:'mock1129',date:'2026-11-29',subject:'論理・表現',title:'本番と同じ形の予想テスト（2回目）',min:60,decks:['ronpyo-374','ronpyo-403','ronpyo-431','ronpyo-448','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],mock:{A:60,B:20,C:8,D:2}},
       {id:'d1108a',date:'2026-11-08',subject:'論理・表現',title:'文法ポイントのカードを最後まで回す',min:25,decks:['ronpyo-points']},
       {id:'d1108b',date:'2026-11-08',subject:'論理・表現',title:'比較の4択問題を最後まで解く',min:15,decks:['ronpyo-a1']},
       {id:'d1108d',date:'2026-11-08',subject:'論理・表現',title:'比較の前半の問題をもう一度（2周目）',min:20,decks:['ronpyo-374'],last:true},
