@@ -653,7 +653,7 @@ async function exportFile(){
 function copyText(t,ok,ng){if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(ok,ng);else ng()}
 function parseExtraLines(text){
   const out=[],bad=[];
-  String(text||'').split(/\r?\n/).forEach((raw,i)=>{const l=raw.trim();if(!l||l[0]==='#')return;const p=l.split(/\t|｜|\|/).map(x=>x.trim());const date=parseDate(p[0]);if(!date||p.length<3||!p[2]){bad.push(i+1);return}out.push({id:newId()+i,date,subject:p[1]||'全科目',title:p[2],min:parseInt(p[3],10)||0})});
+  String(text||'').split(/\r?\n/).forEach((raw,i)=>{const l=raw.trim();if(!l||l[0]==='#')return;const p=l.split(/\t|｜|\|/).map(x=>x.trim());const date=parseDate(p[0]);if(!date||p.length<3||!p[2]){bad.push(i+1);return}const dk=p[4]?D.decks.find(d=>d.id===p[4]||d.title===p[4]):null;out.push({id:newId()+i,date,subject:p[1]||'全科目',title:p[2],min:parseInt(p[3],10)||0,decks:dk?[dk.id]:[]})});
   return {out,bad};
 }
 function applyPreset(p){
