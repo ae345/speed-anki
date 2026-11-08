@@ -1,25 +1,25 @@
 /* Starting setups. The app builds the day-by-day plan from these on its own. */
 window.PRESETS=[{
   id:'2026-12-zen-ronpyo',
-  version:4,
+  version:5,
   title:'12月期末・全科目（論表重点）で始める',
-  note:'12月2日からの期末テスト用。論理・表現は範囲と暗記カード139枚まで入っています。ほかの科目はおおまかな範囲なので、範囲表が出たら「計画の設定」で直してください。',
-  decks:['ronpyo-points','ronpyo-374','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
+  note:'12月2日からの期末テスト用。論理・表現は全部アプリの問題で勉強できます。ほかの科目はおおまかな範囲なので、範囲表が出たら「計画の設定」で直してください。',
+  decks:['ronpyo-points','ronpyo-374','ronpyo-403','ronpyo-431','ronpyo-448','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
   settings:{
     examDate:'2026-12-02',weekdayMin:120,weekendMin:240,ankiMin:20,newLimit:40,
     holidays:['2026-11-23'],offDays:[],
     subjects:[
-      {id:'ronpyo',name:'論理・表現',weight:3,cycles:3,testDate:'',items:[
+      {id:'ronpyo',name:'論理・表現',weight:3,cycles:3,testDate:'',finalMin:40,finalDecks:['ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],items:[
         {id:'b374',label:'比較の前半の問題を最後まで解く（本冊374〜402の文法）',min:30,decks:['ronpyo-374'],early:true},
-        {id:'b403',label:'本冊 403〜430（比較の後半）',min:50,decks:[]},
-        {id:'b431',label:'本冊 431〜447（主語と動詞の一致）',min:35,decks:[]},
-        {id:'b448',label:'本冊 448〜474（疑問文）',min:55,decks:[]},
-        {id:'w11',label:'準拠問題集 第11章（比較）',min:40,decks:[]},
-        {id:'w12',label:'準拠問題集 第12〜13章（一致・疑問文）',min:40,decks:[]},
-        {id:'qa1',label:'予想問題A① 比較（4択）',min:15,decks:['ronpyo-a1']},
-        {id:'qa2',label:'予想問題A② 一致・疑問文（4択）',min:15,decks:['ronpyo-a2']},
-        {id:'qb',label:'予想問題B 並べ替え',min:10,decks:['ronpyo-b']},
-        {id:'qcd',label:'予想問題C・D 書きかえ・誤り指摘',min:10,decks:['ronpyo-cd']}
+        {id:'b403',label:'比較の後半の問題を最後まで解く（本冊403〜430の文法）',min:30,decks:['ronpyo-403'],early:true},
+        {id:'b431',label:'is か are かの問題を最後まで解く（本冊431〜447の文法）',min:30,decks:['ronpyo-431'],early:true},
+        {id:'b448',label:'質問の文の問題を最後まで解く（本冊448〜474の文法）',min:30,decks:['ronpyo-448'],early:true},
+        {id:'w11',label:'比較の問題をまとめて解く（前半と後半）',min:40,decks:['ronpyo-374','ronpyo-403']},
+        {id:'w12',label:'is か are か・質問の文の問題をまとめて解く',min:40,decks:['ronpyo-431','ronpyo-448']},
+        {id:'qa1',label:'比較の4択問題を最後まで解く',min:15,decks:['ronpyo-a1']},
+        {id:'qa2',label:'is か are か・質問の文の4択問題を最後まで解く',min:15,decks:['ronpyo-a2']},
+        {id:'qb',label:'並べかえ問題を最後まで解く',min:10,decks:['ronpyo-b']},
+        {id:'qcd',label:'書きかえと間違い探しの問題を最後まで解く',min:10,decks:['ronpyo-cd']}
       ]},
       {id:'eigo',name:'英語',weight:3,cycles:3,testDate:'',items:[
         {id:'tango',label:'範囲の単語',min:30,decks:[]},

@@ -259,7 +259,7 @@ function unitsAll(){
         out.push({id:s.id+':'+it.id+':c'+c,subjectId:s.id,subject:s.name||'その他',item:it.id,ii,cycle:c,cycles:cyc,title:(it.label||'やること')+suffix,min:Math.max(5,Math.round(base*f/5)*5),decks:it.decks||[],early:!!it.early,weight:w});
       }
     });
-    if((s.items||[]).length&&Number(s.finalMin)!==0)out.push({id:s.id+':final',subjectId:s.id,subject:s.name||'その他',item:'final',ii:999,cycle:99,cycles:cyc,title:'テスト前の総見直し（×が残った問題と要点）',min:Number(s.finalMin)||30,decks:[],weight:w,final:true});
+    if((s.items||[]).length&&Number(s.finalMin)!==0)out.push({id:s.id+':final',subjectId:s.id,subject:s.name||'その他',item:'final',ii:999,cycle:99,cycles:cyc,title:(s.finalDecks||[]).length?'テスト前の総見直し（テストと同じ形の問題を全部）':'テスト前の総見直し（×が残った問題と要点）',min:Number(s.finalMin)||30,decks:s.finalDecks||[],weight:w,final:true});
   });
   (D.settings.extras||[]).forEach(x=>{if(x&&x.title)out.push({id:'x:'+x.id,subjectId:'_x',subject:x.subject||'全科目',title:x.title,min:Number(x.min)||0,decks:x.decks||[],fixedDate:isDate(x.date)?x.date:today(),extra:true,last:!!x.last,cycle:0,weight:1})});
   return out;
@@ -602,9 +602,9 @@ function renderStudy(){
   if(c.options)h+='<div class="opts">'+c.options.map((o,i)=>{const cls=r.shown?(i===c.answer?' right':(r.pick===i?' wrong':'')):'';return '<button class="opt'+cls+'" data-pick="'+i+'"'+(r.shown?' disabled':'')+'><b>'+MARK[i]+'</b><span>'+esc(o)+'</span></button>'}).join('')+'</div>';
   if(r.shown){const head=c.options?(r.pick===c.answer?'<b style="font-size:18px">○ 正解！</b><br>':'<b style="color:var(--again);font-size:18px">× ざんねん。正解は '+MARK[c.answer]+'</b><br>'):'';h+='<div class="answer">'+head+esc(c.back)+'</div>'}
   h+='</div></div><div class="controls">';
-  if(!r.shown)h+=c.options?'<p class="hint">正しいと思うものを押す</p>':'<p class="hint">頭の中で答えてから押す</p><button class="btn big" data-act="reveal">答えを見る</button>';
-  else if(r.mode==='srs'){if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-rate="'+(ok?3:1)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else h+='<div class="rate two"><button class="r1" data-rate="1">× まちがえた<small>あとでもう一度</small></button><button class="r3 rec" data-rate="3">○ できた<small>次へ</small></button></div>'}
-  else if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-cram="'+(ok?1:0)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else{h+='<div class="rate two"><button class="r1" data-cram="0">× まちがえた<small>あとでもう一度</small></button><button class="r3 rec" data-cram="1">○ できた<small>次へ</small></button></div>'}
+  if(!r.shown)h+=c.options?'<p class="hint">正しいと思うものを押す</p>':'<button class="btn big" data-act="reveal">答えを見る</button>';
+  else if(r.mode==='srs'){if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-rate="'+(ok?3:1)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else h+='<button class="btn big go" data-rate="3">次へ</button>'}
+  else if(c.options){const ok=r.pick===c.answer;h+='<button class="btn big go" data-cram="'+(ok?1:0)+'">'+(ok?'次へ':'次へ（あとでもう一度出ます）')+'</button>'}else{h+='<button class="btn big go" data-cram="1">次へ</button>'}
   el.innerHTML=h+'</div>';
 }
 function renderManage(){
@@ -766,8 +766,7 @@ document.addEventListener('keydown',e=>{
     if(!c.options&&(e.key===' '||e.key==='Enter')){e.preventDefault();return reveal()}
     return;
   }
-  if(r.mode==='srs'){if(/^[1-4]$/.test(e.key)){e.preventDefault();return rate(Number(e.key))}if(e.key===' '||e.key==='Enter'){e.preventDefault();return rate(recommended())}}
-  else{if(e.key==='1'||e.key==='ArrowLeft'){e.preventDefault();return cram(false)}if(e.key==='2'||e.key==='ArrowRight'||e.key===' '||e.key==='Enter'){e.preventDefault();return cram(true)}}
+  if(e.key===' '||e.key==='Enter'||e.key==='ArrowRight'){e.preventDefault();const ok=!c.options||r.pick===c.answer;return r.mode==='srs'?rate(ok?3:1):cram(ok)}
 });
 document.addEventListener('submit',e=>{
   e.preventDefault();
