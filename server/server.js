@@ -20,23 +20,20 @@ function readJSON(f,def){try{return JSON.parse(fs.readFileSync(f,'utf8'))}catch(
 function writeJSON(f,v){const tmp=f+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify(v,null,1));fs.renameSync(tmp,f)}
 
 /* ---------- state ---------- */
-const PF=path.join(DATA,'profiles.json'),KF=path.join(DATA,'keys.json');
+const PF=path.join(DATA,'profiles.json');
 let profiles=readJSON(PF,null);if(!Array.isArray(profiles)||!profiles.length){profiles=[{id:'me',name:'自分'}];writeJSON(PF,profiles)}
-let keys=readJSON(KF,{});
 let config=readJSON(CONFIG,{});
-const pairCodes=new Map();// code -> expires
 const tunnel={url:'',state:'starting',published:'',error:''};
 const dataFile=id=>path.join(DATA,id+'.json');
 const validId=id=>/^[a-z0-9_-]{1,40}$/i.test(id||'');
 
 /* ---------- helpers ---------- */
 function isLocal(req){const a=req.socket.remoteAddress||'';return (a==='127.0.0.1'||a==='::1'||a==='::ffff:127.0.0.1')&&!req.headers['cf-connecting-ip']&&!req.headers['x-forwarded-for']&&!req.headers['cf-ray']}
-function authed(req){if(isLocal(req))return true;const k=req.headers['x-key'];return typeof k==='string'&&Object.prototype.hasOwnProperty.call(keys,k)}
 function cors(req,res){
   const o=req.headers.origin;
   if(o&&(ORIGINS.includes(o)||/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o))){
     res.setHeader('Access-Control-Allow-Origin',o);res.setHeader('Vary','Origin');
-    res.setHeader('Access-Control-Allow-Headers','Content-Type, X-Key');res.setHeader('Access-Control-Allow-Methods','GET, PUT, POST, OPTIONS');res.setHeader('Access-Control-Max-Age','600');
+    res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Access-Control-Allow-Methods','GET, PUT, POST, OPTIONS');res.setHeader('Access-Control-Max-Age','600');
   }
 }
 function send(res,code,obj){const b=JSON.stringify(obj);res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(b)}
@@ -46,21 +43,8 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 /* ---------- api ---------- */
 async function api(req,res,p){
   const local=isLocal(req);
-  if(p==='/api/hello'&&req.method==='GET')return send(res,200,{ok:true,app:'speed-anki',local,authed:authed(req)});
-  if(p==='/api/pair'&&req.method==='POST'){
-    const b=await body(req);const code=String(b.code||'').replace(/\D/g,'');const exp=pairCodes.get(code);
-    if(!exp||exp<Date.now())return send(res,403,{error:'bad_code'});
-    pairCodes.delete(code);const key=crypto.randomBytes(24).toString('hex');keys[key]={created:new Date().toISOString(),name:String(b.device||'').slice(0,40)};writeJSON(KF,keys);
-    log('paired a device');return send(res,200,{key,profiles});
-  }
-  if(!authed(req))return send(res,401,{error:'unauthorized'});
-  if(p==='/api/pair-code'&&req.method==='GET'){
-    if(!local)return send(res,403,{error:'local_only'});
-    for(const [c,e] of pairCodes)if(e<Date.now())pairCodes.delete(c);
-    let code;do{code=String(crypto.randomInt(0,1000000)).padStart(6,'0')}while(pairCodes.has(code));
-    const exp=Date.now()+10*60e3;pairCodes.set(code,exp);return send(res,200,{code,exp});
-  }
-  if(p==='/api/status'&&req.method==='GET')return send(res,200,{tunnel,devices:Object.keys(keys).length,profiles,local,gist:config.gistId||''});
+  if(p==='/api/hello'&&req.method==='GET')return send(res,200,{ok:true,app:'speed-anki',local});
+  if(p==='/api/status'&&req.method==='GET')return send(res,200,{tunnel,profiles,local,gist:config.gistId||''});
   if(p==='/api/profiles'&&req.method==='GET')return send(res,200,{profiles});
   if(p==='/api/profiles'&&req.method==='POST'){
     if(!local)return send(res,403,{error:'local_only'});
@@ -87,7 +71,6 @@ async function api(req,res,p){
       return send(res,200,{rev:next.rev});
     }
   }
-  if(p==='/api/keys/forget'&&req.method==='POST'&&local){keys={};writeJSON(KF,keys);return send(res,200,{ok:true})}
   return send(res,404,{error:'not_found'});
 }
 

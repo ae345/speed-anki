@@ -100,7 +100,7 @@ function merge(a,b){
   return o;
 }
 function rerenderSettings(){if(S.screen==='settings')renderSettings()}
-const linked=()=>!!prof().srv&&(IS_PC||!!LINK.key);
+const linked=()=>!!prof().srv;
 function fetchT(url,opt,ms){const ac=new AbortController();const t=setTimeout(()=>ac.abort(),ms||10000);return fetch(url,Object.assign({},opt,{signal:ac.signal})).finally(()=>clearTimeout(t))}
 /* The PC's address changes when it restarts; it is published in a gist that the app reads. */
 async function discover(){
@@ -112,7 +112,7 @@ async function discover(){
 }
 async function api(path,opt){
   opt=opt||{};
-  const headers={'Content-Type':'application/json'};if(LINK.key&&!IS_PC)headers['X-Key']=LINK.key;
+  const headers={'Content-Type':'application/json'};
   const go=async base=>{const r=await fetchT(base+path,{method:opt.method||'GET',headers,body:opt.body?JSON.stringify(opt.body):undefined,cache:'no-store'},opt.ms||10000);let j=null;try{j=await r.json()}catch(e){}return {status:r.status,body:j}};
   if(IS_PC)return go(location.origin);
   if(LINK.base){try{const r=await go(LINK.base);if(r.status!==530&&r.status!==502&&r.status!==404)return r}catch(e){}}
@@ -125,7 +125,19 @@ function mergeRemote(json){
   if(after!==before){D=merged;S.sched=null;saveLocal();if(S.screen==='planner')renderPreview();else if(!['study','focus','settings'].includes(S.screen))render()}
 }
 function syncFail(e){syncInfo.state='offline';syncInfo.msg=String((e&&e.message)||e)}
-function unpaired(){syncInfo.state='unpaired';LINK.key='';saveLink();clearInterval(pollTimer)}
+function unpaired(){syncInfo.state='offline'}
+/* Phones find the PC by themselves; the person only has to tap their name once. */
+async function findPeople(){
+  if(IS_PC||linked())return;
+  try{const r=await api('/api/profiles');if(r.status===200){S.pairProfiles=r.body.profiles||[];S.pairErr=false}else S.pairErr=true}catch(e){S.pairErr=true}
+  if(['welcome','today','settings'].includes(S.screen))render();
+}
+function whoPicker(){
+  const list=S.pairProfiles;
+  if(!list)return S.pairErr?'<p class="small">PCが見つかりませんでした。PCの電源が入っていれば、開き直すと自動でつながります。</p><button class="btn line sm" data-act="pair-list">もう一度さがす</button>':'<p class="muted small">PCをさがしています…</p>';
+  return '<p class="small">名前を押すと、PCで作った計画がこのスマホに届きます。</p><div class="row">'+list.map(p=>'<button class="btn" data-act="pair-pick" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">'+esc(p.name)+'</button>').join('')+'</div>';
+}
+const whoPanel=()=>IS_PC||linked()?'':'<div class="panel"><h2>だれが使いますか？</h2>'+whoPicker()+'</div>';
 async function pullNow(){
   if(!linked())return;
   const pid=prof().srv;
@@ -166,7 +178,7 @@ function syncStart(){
   pollTimer=setInterval(()=>{if(!document.hidden)syncRun(pullNow)},20000);
 }
 /* On the PC, the people list mirrors the server's. "自分" on the server is this PC's original profile. */
-let SRV_PROFILES=null,PC_STATUS=null,PAIR=null;
+let SRV_PROFILES=null,PC_STATUS=null;
 function mirrorProfiles(list){
   SRV_PROFILES=list;
   list.forEach(sp=>{
@@ -186,7 +198,7 @@ async function pcRefresh(){
   }catch(e){PC_STATUS={error:String(e.message||e)}}
   rerenderSettings();
 }
-const syncLabel=()=>syncInfo.state==='ok'?'<span class="ok">同期済み（'+new Date(syncInfo.at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'）</span>':syncInfo.state==='connecting'?'<span class="muted">PCに接続しています</span>':syncInfo.state==='offline'?'<span class="err">PCにつながりません（あとで自動で同期します）</span>':syncInfo.state==='unpaired'?'<span class="err">PCとのつながりが切れました。もう一度番号を入れてください。</span>':'';
+const syncLabel=()=>syncInfo.state==='ok'?'<span class="ok">同期済み（'+new Date(syncInfo.at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'）</span>':syncInfo.state==='connecting'?'<span class="muted">PCに接続しています</span>':syncInfo.state==='offline'?'<span class="err">PCにつながりません（あとで自動で同期します）</span>':'';
 
 /* ---------- cards & spaced repetition ---------- */
 function allCards(){
@@ -419,11 +431,11 @@ function scheduleWarning(r){
 
 /* ---------- screens ---------- */
 function renderWelcome(){
-  let h='<div class="top"><h1>スピード暗記帳</h1></div>';
+  let h='<div class="top"><h1>スピード暗記帳</h1></div>'+whoPanel();
   h+='<div class="panel"><p>テストの日と範囲を入れると、アプリが毎日のやることを自動で組みます。やり残しが出ても、次に開いたときに組み直されます。毎日「今日」を開いて、上から押していけば終わります。</p></div>';
   h+='<div class="panel"><h2>どうやって始めますか？</h2>'+PRESETS.map((p,i)=>'<button class="btn big" data-act="setup-preset" data-i="'+i+'">'+esc(p.title)+'</button><p class="muted small">'+esc(p.note||'')+'</p>').join('');
   h+='<button class="btn line" data-act="setup-blank">自分で範囲を入れて始める</button>';
-  h+=(IS_PC?'':'<button class="btn line" data-act="tab" data-tab="settings">PCで計画を作ってあるなら、PCとつなぐ</button>')+'</div>';
+  h+='</div>';
   h+=installTip();
   $('welcome').innerHTML=h;
 }
@@ -433,6 +445,7 @@ function renderToday(){
   const mins=list.filter(x=>!isDone(x.id)).reduce((a,x)=>a+(x.min||0),0)+(rv&&!rv.done&&rv.left?Number(D.settings.ankiMin)||0:0);
   let h='<div class="top"><div><p class="muted small">'+dayLabel(t)+(P.list.length>1?'・'+esc(prof().name):'')+'</p><h1>今日やること</h1></div>'+countdown()+'</div>';
   if(S.saveErr)h+='<div class="notice">'+esc(S.saveErr)+'</div>';
+  h+=whoPanel();
   if(!subjectsOf().length&&!(D.settings.extras||[]).length&&!rv){
     h+='<div class="panel"><h2>まだ範囲が入っていません</h2><p class="small">「計画」タブの「計画の設定」で、テストの日と科目ごとの範囲を入れてください。PCで開くと編集しやすいです。</p><button class="btn" data-act="planner">計画の設定を開く</button></div>';
     $('today').innerHTML=h;return;
@@ -524,26 +537,19 @@ function renderDecks(){
 function renderSyncPanel(){
   const st=PC_STATUS||{},tun=st.tunnel||{};
   if(IS_PC){
-    let h='<p class="small">'+(st.error?'<span class="err">サーバーの状態を読めませんでした。</span>':tun.state==='up'?'<span class="ok">サーバーは動いていて、外からもつながります。</span>':tun.state==='missing'?'<span class="err">cloudflared が見つからないため、外からはつながりません。</span>':'<span class="muted">外からつながる道を準備しています。</span>')+(st.devices!=null?'　つながっているスマホ：'+st.devices+'台':'')+'</p>';
+    let h='<p class="small">'+(st.error?'<span class="err">サーバーの状態を読めませんでした。</span>':tun.state==='up'?'<span class="ok">サーバーは動いていて、外からもつながります。</span>':tun.state==='missing'?'<span class="err">cloudflared が見つからないため、外からはつながりません。</span>':'<span class="muted">外からつながる道を準備しています。</span>')+'</p>';
     if(tun.url)h+='<p class="muted small">外からのアドレス：'+esc(tun.url)+'（PCを再起動すると変わりますが、アプリが自動で探します）</p>';
-    h+='<p class="small">スマホをつなぐときは、下のボタンで番号を出し、スマホのアプリの「設定」→「PCとつなぐ」に入れます。</p><div class="row"><button class="btn" data-act="pc-code">スマホをつなぐ番号を出す</button></div>';
-    if(PAIR&&PAIR.exp>Date.now())h+='<p class="code">'+esc(PAIR.code.slice(0,3)+' '+PAIR.code.slice(3))+'</p><p class="muted small" style="text-align:center">'+new Date(PAIR.exp).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'まで使えます。1回使うと消えます。</p>';
+    h+='<p class="small">スマホは、アプリを開いて名前を押すだけでつながります。番号などは要りません。</p>';
     h+='<p class="small">'+syncLabel()+'</p>';
     return h;
   }
-  if(!LINK.key){
-    return '<p class="small">PCとつなぐと、PCで変えた計画がこのスマホに届き、ここでつけた完了の印もPCに送られます。</p><ol class="steps"><li>PCで暗記帳を開き、「設定」→「スマホをつなぐ番号を出す」を押す</li><li>出てきた6桁の番号を下に入れる</li></ol><label>PCに出ている6桁の番号<input type="text" id="pair-code" inputmode="numeric" maxlength="7" placeholder="例：123 456" autocomplete="off"></label><div class="row"><button class="btn" data-act="pair-go">つなぐ</button><span id="pair-msg"></span></div>';
-  }
-  if(!prof().srv){
-    const list=S.pairProfiles||SRV_PROFILES||[];
-    return '<p class="small">つながりました。このスマホを使う人を選んでください。</p><div class="row">'+(list.length?list.map(p=>'<button class="btn line" data-act="pair-pick" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">'+esc(p.name)+'</button>').join(''):'<button class="btn line" data-act="pair-list">使う人を読み込む</button>')+'</div><p class="muted small">選ぶと、このスマホにあるデータはその人のデータとまとめられます。</p><span id="pair-msg"></span>';
-  }
+  if(!linked())return whoPicker();
   return '<p class="small">'+(syncLabel()||'<span class="muted">準備しています</span>')+'</p><p class="muted small">「'+esc(prof().name)+'」としてPCと同期しています。開いている間は20秒ごとに確かめます。</p><div class="row"><button class="btn line sm" data-act="sync-now">今すぐ同期</button><button class="btn text sm'+(S.confirm==='unlink'?' danger':'')+'" data-act="unlink">'+(S.confirm==='unlink'?'本当にやめる（このスマホのデータは残ります）':'PCとつなぐのをやめる')+'</button></div>';
 }
 function renderSettings(){
   let h='<div class="top"><h1>設定</h1></div>';
   // people
-  h+='<div class="panel"><h2>使う人</h2><p class="muted small">PCでは、自分と弟の両方を切り替えて計画をいじれます。それぞれのデータは別々です。</p><ul class="mlist">'+P.list.map(p=>{const k='prof:'+p.id;return '<li><div><strong>'+esc(p.name)+'</strong>'+(p.id===P.active?'　<span class="ok">使用中</span>':'')+(p.srv&&(IS_PC||LINK.key)?'<br><span class="muted small">PCと同期</span>':'')+'</div><div class="row">'+(p.id!==P.active?'<button class="btn line sm" data-act="prof-switch" data-id="'+esc(p.id)+'">切り替える</button>':'')+(p.id!=='default'&&p.id!==P.active?'<button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="prof-del" data-id="'+esc(p.id)+'">'+(S.confirm===k?'本当に外す':'外す')+'</button>':'')+'</div></li>'}).join('')+'</ul>';
+  h+='<div class="panel"><h2>使う人</h2><p class="muted small">PCでは、自分と弟の両方を切り替えて計画をいじれます。それぞれのデータは別々です。</p><ul class="mlist">'+P.list.map(p=>{const k='prof:'+p.id;return '<li><div><strong>'+esc(p.name)+'</strong>'+(p.id===P.active?'　<span class="ok">使用中</span>':'')+(p.srv?'<br><span class="muted small">PCと同期</span>':'')+'</div><div class="row">'+(p.id!==P.active?'<button class="btn line sm" data-act="prof-switch" data-id="'+esc(p.id)+'">切り替える</button>':'')+(p.id!=='default'&&p.id!==P.active?'<button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="prof-del" data-id="'+esc(p.id)+'">'+(S.confirm===k?'本当に外す':'外す')+'</button>':'')+'</div></li>'}).join('')+'</ul>';
   h+='<form id="prof-form" class="grid2"><label>使う人を追加（名前）<input type="text" id="prof-name" maxlength="20" placeholder="例：弟"></label><div class="row" style="align-self:end"><button class="btn line sm" type="submit">追加する</button><span id="prof-msg"></span></div></form>'+(IS_PC?'<p class="muted small">ここで追加した人は、PCのサーバーに登録されます。その人のスマホをつなぐと、PCで作った計画がそのスマホに届きます。</p>':'');
   h+='<label>名前を変える<input type="text" id="prof-rename" maxlength="20" value="'+esc(prof().name)+'"></label></div>';
   // sync
@@ -660,24 +666,10 @@ function switchProfile(id){
   P.active=id;saveProfiles();D=load();S.sched=null;S.run=null;S.focus=null;S.timer=null;S.filter='all';S.manageDeck=null;
   syncStart();show(D.setup?'today':'welcome');
 }
-async function pairWith(raw){
-  const code=String(raw||'').replace(/\D/g,'');
-  if(code.length!==6){setMsg('pair-msg','PCに出ている6桁の番号を入れてください。');return}
-  setMsg('pair-msg','つないでいます…',true);
-  try{
-    const base=await discover();
-    const r=await fetchT(base+'/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,device:navigator.platform||''})},10000);
-    const j=await r.json().catch(()=>({}));
-    if(r.status!==200||!j.key){setMsg('pair-msg','番号が違うか、期限が切れています。PCでもう一度番号を出してください。');return}
-    LINK.key=j.key;saveLink();S.pairProfiles=j.profiles||[];
-    if(S.pairProfiles.length===1)return pickPerson(S.pairProfiles[0].id,S.pairProfiles[0].name);
-    renderSettings();
-  }catch(e){setMsg('pair-msg','PCにつながりません。PCが起動していて、暗記帳サーバーが動いているか確かめてください。')}
-}
 function pickPerson(id,name){
   prof().srv=id;if(name)prof().name=name;saveProfiles();S.pairProfiles=null;
   if(!D.setup)D.setup=true;saveLocal();syncStart();
-  if(S.screen==='settings')renderSettings();
+  if(S.screen==='welcome')show('today');else render();
 }
 
 /* ---------- events ---------- */
@@ -729,12 +721,10 @@ document.addEventListener('click',async e=>{
     case 'prof-del':{const k='prof:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderSettings()}S.confirm=null;const gone=P.list.find(p=>p.id===b.dataset.id);
       if(IS_PC&&gone&&gone.srv&&gone.srv!=='me'){try{await api('/api/profiles/'+encodeURIComponent(gone.srv),{method:'POST',body:{delete:true}})}catch(x){}}
       P.list=P.list.filter(p=>p.id!==b.dataset.id);saveProfiles();try{localStorage.removeItem(dataKey(b.dataset.id))}catch(x){}return renderSettings()}
-    case 'pc-code':{try{const r=await api('/api/pair-code');if(r.status===200)PAIR=r.body}catch(x){}return renderSettings()}
-    case 'pair-go':return pairWith(($('pair-code')||{}).value);
     case 'pair-pick':return pickPerson(b.dataset.id,b.dataset.name);
-    case 'pair-list':{try{const r=await api('/api/profiles');if(r.status===200)S.pairProfiles=r.body.profiles;else if(r.status===401)unpaired()}catch(x){setMsg('pair-msg','PCにつながりません。')}return renderSettings()}
+    case 'pair-list':{S.pairProfiles=null;S.pairErr=false;render();return findPeople()}
     case 'sync-now':syncInfo.state='connecting';renderSettings();await syncRun(pullNow);await syncRun(pushNow);return renderSettings();
-    case 'unlink':{if(S.confirm!=='unlink'){S.confirm='unlink';return renderSettings()}S.confirm=null;LINK={};saveLink();P.list.forEach(p=>{delete p.srv});saveProfiles();syncStart();return renderSettings()}
+    case 'unlink':{if(S.confirm!=='unlink'){S.confirm='unlink';return renderSettings()}S.confirm=null;LINK={};saveLink();P.list.forEach(p=>{delete p.srv});saveProfiles();syncStart();S.pairProfiles=null;renderSettings();return findPeople()}
     case 'del-score':{const k='score:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderSettings()}S.confirm=null;D.scores=D.scores.filter(s=>s.id!==b.dataset.id);persist();return renderSettings()}
     case 'lib-add':installLib(b.dataset.id);persist();return renderLibrary();
     case 'lib-remove':{const k='lib:'+b.dataset.id;if(S.confirm!==k){S.confirm=k;return renderLibrary()}S.confirm=null;removeDeck(b.dataset.id);return renderLibrary()}
@@ -807,6 +797,7 @@ S.screen=D.setup?'today':'welcome';
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){S.sched=null;if(['today','plan','decks'].includes(S.screen))render();syncRun(pullNow)}});
 render();
 syncStart();
+findPeople();
 if(IS_PC){pcRefresh();setInterval(()=>{if(!document.hidden&&S.screen==='settings')pcRefresh()},15000)}
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})})}
 window.__speedAnki={schedule:()=>schedule(),data:()=>D};
