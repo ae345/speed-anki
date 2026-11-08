@@ -1,6 +1,7 @@
 /* Starting setups. The app builds the day-by-day plan from these on its own. */
 window.PRESETS=[{
   id:'2026-12-zen-ronpyo',
+  version:2,
   title:'12月期末・全科目（論表重点）で始める',
   note:'12月2日からの期末テスト用。論理・表現は範囲と暗記カード139枚まで入っています。ほかの科目はおおまかな範囲なので、範囲表が出たら「計画の設定」で直してください。',
   decks:['ronpyo-points','ronpyo-a1','ronpyo-a2','ronpyo-b','ronpyo-cd'],
@@ -50,9 +51,13 @@ window.PRESETS=[{
         {id:'kihon',label:'用語と基本問題',min:30,decks:[]}
       ]}
     ],
+    /* 11/8 is a 論表-only day of about 2 hours */
+    dayMin:{'2026-11-08':120},
+    onlyDay:{'2026-11-08':'ronpyo'},
     extras:[
-      {id:'x1',date:'2026-11-08',subject:'全科目',title:'時間割、範囲表、選択している理科と社会の科目をClaudeに送る',min:10},
-      {id:'x2',date:'2026-11-08',subject:'英語',title:'前学期のテストの問題と答案をClaudeに送る',min:10}
+      {id:'d1108a',date:'2026-11-08',subject:'論理・表現',title:'文法ポイントのカードを最後まで回す（比較・一致・疑問文）',min:25,decks:['ronpyo-points']},
+      {id:'d1108b',date:'2026-11-08',subject:'論理・表現',title:'比較の4択問題を最後まで回す（間違えたら解説を読む）',min:15,decks:['ronpyo-a1']},
+      {id:'d1108c',date:'2026-11-08',subject:'論理・表現',title:'本冊 374〜402 で×を付けた問題を、答えを隠して解き直す',min:20,last:true}
     ]
   }
 }];

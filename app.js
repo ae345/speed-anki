@@ -100,7 +100,7 @@ function merge(a,b){
   return o;
 }
 function rerenderSettings(){if(S.screen==='settings')renderSettings()}
-const linked=()=>!!prof().srv;
+const linked=()=>IS_PC&&!!prof().srv;
 function fetchT(url,opt,ms){const ac=new AbortController();const t=setTimeout(()=>ac.abort(),ms||10000);return fetch(url,Object.assign({},opt,{signal:ac.signal})).finally(()=>clearTimeout(t))}
 /* The PC's address changes when it restarts; it is published in a gist that the app reads. */
 async function discover(){
@@ -128,7 +128,7 @@ function syncFail(e){syncInfo.state='offline';syncInfo.msg=String((e&&e.message)
 function unpaired(){syncInfo.state='offline'}
 /* Phones find the PC by themselves; the person only has to tap their name once. */
 async function findPeople(){
-  if(IS_PC||linked())return;
+  return;
   try{const r=await api('/api/profiles');if(r.status===200){S.pairProfiles=r.body.profiles||[];S.pairErr=false}else S.pairErr=true}catch(e){S.pairErr=true}
   if(['welcome','today','settings'].includes(S.screen))render();
 }
@@ -137,7 +137,7 @@ function whoPicker(){
   if(!list)return S.pairErr?'<p class="small">PCが見つかりませんでした。PCの電源が入っていれば、開き直すと自動でつながります。</p><button class="btn line sm" data-act="pair-list">もう一度さがす</button>':'<p class="muted small">PCをさがしています…</p>';
   return '<p class="small">名前を押すと、PCで作った計画がこのスマホに届きます。</p><div class="row">'+list.map(p=>'<button class="btn" data-act="pair-pick" data-id="'+esc(p.id)+'" data-name="'+esc(p.name)+'">'+esc(p.name)+'</button>').join('')+'</div>';
 }
-const whoPanel=()=>IS_PC||linked()?'':'<div class="panel"><h2>だれが使いますか？</h2>'+whoPicker()+'</div>';
+const whoPanel=()=>true?'':'<div class="panel"><h2>だれが使いますか？</h2>'+whoPicker()+'</div>';
 async function pullNow(){
   if(!linked())return;
   const pid=prof().srv;
@@ -261,11 +261,12 @@ function unitsAll(){
     });
     if((s.items||[]).length&&Number(s.finalMin)!==0)out.push({id:s.id+':final',subjectId:s.id,subject:s.name||'その他',item:'final',ii:999,cycle:99,cycles:cyc,title:'テスト前の総見直し（×が残った問題と要点）',min:Number(s.finalMin)||30,decks:[],weight:w,final:true});
   });
-  (D.settings.extras||[]).forEach(x=>{if(x&&x.title)out.push({id:'x:'+x.id,subjectId:'_x',subject:x.subject||'全科目',title:x.title,min:Number(x.min)||0,decks:x.decks||[],fixedDate:isDate(x.date)?x.date:today(),extra:true,cycle:0,weight:1})});
+  (D.settings.extras||[]).forEach(x=>{if(x&&x.title)out.push({id:'x:'+x.id,subjectId:'_x',subject:x.subject||'全科目',title:x.title,min:Number(x.min)||0,decks:x.decks||[],fixedDate:isDate(x.date)?x.date:today(),extra:true,last:!!x.last,cycle:0,weight:1})});
   return out;
 }
 function capacity(d){
   const st=D.settings;if((st.offDays||[]).includes(d))return 0;
+  if(st.dayMin&&st.dayMin[d]!=null)return Math.max(0,Number(st.dayMin[d])||0);
   const wk=dow(d)===0||dow(d)===6||(st.holidays||[]).includes(d);
   const base=wk?Number(st.weekendMin)||0:Number(st.weekdayMin)||0;
   return Math.max(0,base-(allCards().length?Number(st.ankiMin)||0:0));
@@ -298,7 +299,7 @@ function schedule(){
   /* spread the work evenly: only fill each day up to (work left ÷ time left), with a little headroom */
   let totalCap=0;for(let x=t0;x<=maxDl;x=shift(x,1))totalCap+=capacity(x);
   const ratio=Math.min(1,(res.totalMin*1.15)/(totalCap||1));
-  const eff=x=>{const c=capacity(x);return c?Math.min(c,Math.max(40,Math.round(c*ratio))):0};
+  const eff=x=>{const c=capacity(x);if(D.settings.dayMin&&D.settings.dayMin[x]!=null)return c;return c?Math.min(c,Math.max(40,Math.round(c*ratio))):0};
   let d=t0,guard=0;
   while(queue.length&&guard<500){
     const list=res.days[d]=res.days[d]||[],full=d>maxDl?capacity(d):eff(d);
@@ -312,6 +313,7 @@ function schedule(){
         if(p&&byId[p]){const pd=placed[p]||doneDate(p);if(!pd){i++;continue}gap=shift(pd,2)}
         if(u.final&&d<subj[u.subjectId].dl&&queue.some(x=>x!==u&&x.subjectId===u.subjectId)){i++;continue}
         if(d<gap||win>horizon||(pass===1&&u.final)){i++;continue}
+        if(D.settings.onlyDay&&D.settings.onlyDay[d]&&u.subjectId!==D.settings.onlyDay[d]){i++;continue}
         if(u.min<=cap||(list.length===startLen&&cap>=full*0.5)){
           const late=subj[u.subjectId]&&d>subj[u.subjectId].dl;
           list.push(Object.assign({},u,{late}));if(late)res.late.push(u);
@@ -422,6 +424,7 @@ function taskRow(u,prefix){
   const bits=[];if(u.min)bits.push('目安'+u.min+'分');if(dk.length)bits.push('カード'+dk.reduce((a,x)=>a+(x.cards||[]).length,0)+'枚');if(u.late)bits.push('締め切りを過ぎています');
   return '<li class="task'+(d?' done':'')+(u.late?' late':'')+'"><button class="check" data-act="toggle" data-id="'+esc(u.id)+'" aria-label="'+(d?'完了を取り消す':'完了にする')+'" aria-pressed="'+d+'">'+(d?'✓':'')+'</button><button class="body" data-act="open" data-id="'+esc(u.id)+'"><strong>'+(prefix?esc(u.subject)+'　':'')+esc(u.title)+'</strong>'+(bits.length?'<span>'+esc(bits.join('・'))+'</span>':'')+'</button><span class="go">'+(d?'':(dk.length?'回す':'始める'))+'</span></li>';
 }
+function todayOrder(list){const g=groupBySubject(list);const out=[];g.forEach(x=>x.items.slice().sort((a,b)=>(a.last?1:0)-(b.last?1:0)).forEach(u=>out.push(u)));return out}
 function groupBySubject(list){const g={};list.forEach(t=>{(g[t.subject]=g[t.subject]||[]).push(t)});return Object.keys(g).sort((a,b)=>subjOrder(a)-subjOrder(b)).map(k=>({subject:k,items:g[k]}))}
 function scheduleWarning(r){
   if(r.unplaced.length)return '<div class="notice">時間が足りず、'+r.unplaced.length+'件のやることがテストまでに入りきりません。「計画の設定」で使える時間を増やすか、周回数を減らしてください。</div>';
@@ -451,8 +454,11 @@ function renderToday(){
     $('today').innerHTML=h;return;
   }
   h+='<div class="panel"><div class="dayhead"><strong>'+doneN+' / '+total+' 完了</strong><span class="muted small">'+(mins?'残り約'+mins+'分':'')+'</span></div><div class="meter"><i style="width:'+(total?Math.round(doneN/total*100):0)+'%"></i></div>'+(total&&doneN===total?'<p class="ok" style="font-size:15px">今日の分は全部終わりました。おつかれさまでした。</p>':'')+'</div>';
+  const ord=todayOrder(list),nx=ord.find(x=>!isDone(x.id));
+  if(nx)h+='<button class="btn big go" data-act="next" data-id="'+esc(nx.id)+'">次をやる：'+esc(nx.title)+'</button>';
+  else if(rv&&rv.left)h+='<button class="btn big go" data-act="review">次をやる：暗記カードの復習（'+rv.left+'枚）</button>';
+  groupBySubject(ord).forEach(g=>{h+='<p class="subj">'+esc(g.subject)+'</p><ul class="tasks">'+g.items.map(x=>taskRow(x)).join('')+'</ul>'});
   if(rv)h+='<p class="subj">毎日の暗記</p><ul class="tasks"><li class="task'+(rv.done?' done':'')+'"><span class="check" aria-hidden="true" style="'+(rv.done?'background:var(--good);border-color:var(--good)':'')+'">'+(rv.done?'✓':'')+'</span><button class="body" data-act="review"><strong>暗記カードの復習</strong><span>'+(rv.left?'今日の分 '+rv.left+'枚':'今日の分は終わりました')+(rv.lg.n?'・今日'+rv.lg.n+'回':'')+'</span></button><span class="go">'+(rv.left?'回す':'')+'</span></li></ul>';
-  groupBySubject(list).forEach(g=>{h+='<p class="subj">'+esc(g.subject)+'</p><ul class="tasks">'+g.items.map(x=>taskRow(x)).join('')+'</ul>'});
   if(!list.length){const next=Object.keys(r.days).filter(d=>d>t).sort()[0];h+='<p class="muted small">今日の計画はありません。'+(next?'次は'+dayLabel(next)+'です。':'')+'</p>'}
   h+=scheduleWarning(r);
   h+='<p class="muted small">やり残した分は、次に開いたときに自動で後ろの日に組み直されます。</p>';
@@ -553,7 +559,7 @@ function renderSettings(){
   h+='<form id="prof-form" class="grid2"><label>使う人を追加（名前）<input type="text" id="prof-name" maxlength="20" placeholder="例：弟"></label><div class="row" style="align-self:end"><button class="btn line sm" type="submit">追加する</button><span id="prof-msg"></span></div></form>'+(IS_PC?'<p class="muted small">ここで追加した人は、PCのサーバーに登録されます。その人のスマホをつなぐと、PCで作った計画がそのスマホに届きます。</p>':'');
   h+='<label>名前を変える<input type="text" id="prof-rename" maxlength="20" value="'+esc(prof().name)+'"></label></div>';
   // sync
-  h+='<div class="panel"><h2>'+(IS_PC?'このPC（同期サーバー）':'PCとつなぐ')+'</h2>'+renderSyncPanel()+'</div>';
+  if(IS_PC)h+='<div class="panel"><h2>このPC（同期サーバー）</h2>'+renderSyncPanel()+'</div>';
   // scores
   h+='<div class="panel"><h2>テストの点数</h2><form id="score-form" class="grid2"><label>日付<input type="date" id="sc-date" value="'+today()+'"></label><label>科目<select id="sc-subject">'+SUBJECTS.filter(s=>s!=='全科目').map(s=>'<option>'+s+'</option>').join('')+'</select></label><label>テスト名<input type="text" id="sc-title" maxlength="40" placeholder="例：前回の期末"></label><label>点数<input type="number" id="sc-score" min="0" step="0.5"></label><label>満点<input type="number" id="sc-max" min="1" step="0.5" value="100"></label><div class="row"><button class="btn line" type="submit">記録する</button><span id="sc-msg"></span></div></form>'+(D.scores.length?'<ul class="mlist">'+D.scores.slice().reverse().map(s=>{const k='score:'+s.id;return '<li><div>'+esc(md(s.date))+'　'+esc(s.subject)+'　'+esc(s.title)+'　<strong>'+esc(s.score)+' / '+esc(s.max)+'</strong></div><button class="btn text sm'+(S.confirm===k?' danger':'')+'" data-act="del-score" data-id="'+esc(s.id)+'">'+(S.confirm===k?'本当に削除':'削除')+'</button></li>'}).join('')+'</ul>':'')+'</div>';
   // backup
@@ -587,7 +593,7 @@ function renderStudy(){
   const c=r.queue[0];
   if(!c){
     const missN=r.missed.size;
-    el.innerHTML='<div class="screen" style="padding-left:0;padding-right:0"><div class="panel"><h2>'+(r.mode==='srs'?'今日の分が終わりました':'全部回しました')+'</h2><p>'+(r.mode==='srs'?r.done+'回解きました。「もう一度」は'+missN+'枚でした。次は忘れかけたころに出てきます。':r.total+'枚を回しました。1回目で正解したのは'+r.right+'枚、間違えたのは'+missN+'枚です。')+'</p>'+(r.taskId?'<p class="ok">計画のやることを「終わった」にしました。</p>':'')+'<div class="row">'+(missN?'<button class="btn" data-act="cram-missed">間違えた'+missN+'枚だけ回す</button>':'')+'<button class="btn line" data-act="run-back">戻る</button></div></div></div>';
+    el.innerHTML='<div class="screen" style="padding-left:0;padding-right:0"><div class="panel"><h2>'+(r.mode==='srs'?'今日の分が終わりました':'全部回しました')+'</h2><p>'+(r.mode==='srs'?r.done+'回解きました。「もう一度」は'+missN+'枚でした。次は忘れかけたころに出てきます。':r.total+'枚を回しました。1回目で正解したのは'+r.right+'枚、間違えたのは'+missN+'枚です。')+'</p>'+(r.taskId?'<p class="ok">計画のやることを「終わった」にしました。</p>':'')+'<div class="row">'+(missN?'<button class="btn" data-act="cram-missed">間違えた'+missN+'枚だけ回す</button>':'')+'<button class="btn '+(r.taskId?'big go':'line')+'" data-act="run-back">'+(r.taskId?'次へ':'戻る')+'</button></div></div></div>';
     return;
   }
   const total=r.done+r.queue.length,p=total?Math.round(r.done/total*100):0,s=stateOf(c.key);
@@ -658,6 +664,7 @@ function parseExtraLines(text){
 }
 function applyPreset(p){
   (p.decks||[]).forEach(id=>installLib(id));
+  D.planId=p.id;D.planVersion=p.version||1;
   const s=JSON.parse(JSON.stringify(p.settings));s.updatedAt=Date.now();
   D.settings=Object.assign(blankSettings(),s);D.setup=true;persist();
 }
@@ -690,6 +697,7 @@ document.addEventListener('click',async e=>{
     case 'past':S.showPast=true;return renderPlan();
     case 'toggle':setDone(b.dataset.id,!isDone(b.dataset.id));return render();
     case 'open':S.focus=b.dataset.id;return show('focus');
+    case 'next':{const u=findUnit(b.dataset.id);if(!u)return;const ids=resolveDecks(u.decks).map(d=>d.id);const cards=allCards().filter(c=>ids.includes(c.deckId));if(cards.length)return startCram(cards,u.id);S.focus=u.id;return show('focus')}
     case 'review':if(!startSrs(allCards()))show('decks');return;
     case 'focus-cards':{const u=findUnit(S.focus);if(!u)return;const ids=resolveDecks(u.decks).map(d=>d.id);return startCram(allCards().filter(c=>ids.includes(c.deckId)),u.id)}
     case 'focus-done':setDone(S.focus,true);return show(S.tab);
@@ -793,6 +801,7 @@ document.addEventListener('submit',e=>{
 
 /* ---------- start ---------- */
 $('nd-subject').innerHTML=SUBJECTS.filter(s=>s!=='全科目').map(s=>'<option>'+s+'</option>').join('');
+if(PRESETS[0]&&(!D.setup||((!D.planId||D.planId===PRESETS[0].id)&&(D.planVersion||0)<(PRESETS[0].version||1))))applyPreset(PRESETS[0]);
 S.screen=D.setup?'today':'welcome';
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){S.sched=null;if(['today','plan','decks'].includes(S.screen))render();syncRun(pullNow)}});
 render();
